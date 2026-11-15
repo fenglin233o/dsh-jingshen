@@ -12,4 +12,4 @@
 - 新名称包在独立 Web profile 中通过实际浏览器验收；面板、主会话、刷新、新浏览器、权限与暂停恢复正常，页面错误为零。
 - 测试使用本地确定性适配器，不证明真实模型的长期学习与改善效果。
 
-完整构建摘要见 `docs/verification.json`。市场发布检查当前阻塞项为尚未建立真实公开 GitHub 仓库；没有生成虚构仓库、发行 URL 或上架状态。发布与被市场收录分别核实。
+完整构建摘要见 `docs/verification.json`。公开源码仓库为 https://github.com/fenglin233o/dsh-jingshen 。安装包发布与社区市场收录分别核实，实际状态以 GitHub Release 和社区目录的审核结果为准。
