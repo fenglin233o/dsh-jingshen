@@ -26,8 +26,8 @@ try {
   const displayName = `${repo.owner}/${repo.repo}${path ? `#${manifest.name.split('/').at(-1)}` : ''}`;
   const url = path ? `${repo.url}/tree/${encodeURIComponent(config.branch)}/${path}` : repo.url;
   const filename = `${repo.owner}__${repo.repo}${path ? `--${path.replaceAll('/', '-')}` : ''}.yml`;
-  const en = 'Personal assistant with persistent conversations, experience memory, autonomous intentions, and checked, reversible source changes.';
-  const zh = '个人助手：延续会话、记录经验、形成主动意向，并通过验证、检查点和回退改造自身源码。';
+  const en = 'Spirit (精神): personal assistant with persistent conversations, experience memory, autonomous intentions, and checked, reversible source changes.';
+  const zh = '精神（Spirit）个人助手：延续会话、记录经验、形成主动意向，并通过验证、检查点和回退改造自身源码。';
   const yaml = [`url: ${JSON.stringify(url)}`, `name: ${JSON.stringify(displayName)}`, 'category: workflow', 'description:',
     `  en: ${JSON.stringify(en)}`, `  zh: ${JSON.stringify(zh)}`,
     ...(config.releaseTarball ? [`tarball: ${JSON.stringify(config.releaseTarball)}`] : []), ''].join('\n');
