@@ -10,7 +10,7 @@
 
 作者：fenglin。源码与问题反馈：[fenglin233o/dsh-jingshen](https://github.com/fenglin233o/dsh-jingshen)。
 
-本项目的包名为 `dsh-jingshen`，公开发行采用 GitHub Release 安装包，实际发布状态见仓库的 [Releases](https://github.com/fenglin233o/dsh-jingshen/releases)；npm 上的 `dsh-spirit` 属于另一个项目。社区市场收录采用 dshmarket 的目录审核流程，提交申请与正式收录是两个状态。详情见 [市场发布说明](marketplace/README.md)。
+本项目的包名为 `dsh-jingshen`，公开仓库包含已构建的运行文件，可通过 GitHub 来源直接安装；固定版本见仓库的 [Releases](https://github.com/fenglin233o/dsh-jingshen/releases)。npm 上的 `dsh-spirit` 属于另一个项目。社区市场收录采用 dshmarket 的目录审核流程，提交申请与正式收录是两个状态。详情见 [市场发布说明](marketplace/README.md)。
 
 ![精神的本地 Web 面板](media/screenshots/panel.png)
 
@@ -29,7 +29,7 @@ dsh --profile spirit --from-default-profile web --dump-config
 
 ### 建议：使用独立源码目录
 
-解压 `dsh-jingshen-0.2.0-source.zip`，进入解压后的包目录：
+从发行页下载 **Source code (zip)**，或使用交付的 `dsh-jingshen-0.2.0-source.zip`，解压后进入 `dsh-jingshen-0.2.0` 目录：
 
 ```sh
 npm ci
@@ -47,12 +47,14 @@ node /绝对路径/dsh-jingshen-0.2.0/scripts/run.mjs --state-dir /绝对路径/
 
 启动器保持进程运行，只在模型明确请求加载已经检验并应用的改动时重启 Harness。它不周期性下载、更新或强迫模型活动。按 Ctrl-C 结束启动器与其 Harness 子进程。
 
-### 从 GitHub Release 安装
+### 从 GitHub 安装固定版本
 
 ```sh
-dsh plugin --profile spirit add "https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.2.0/dsh-jingshen-0.2.0.tgz"
+dsh plugin --profile spirit add "github:fenglin233o/dsh-jingshen#v0.2.0"
 dsh --profile spirit --no-open
 ```
+
+仓库已包含 `lib` 构建产物，安装不需要先自行构建。dshmarket 收录后采用 `github:fenglin233o/dsh-jingshen` 安装，跟随默认分支；需要固定版本时使用上面的带标签命令。此路径无需 npm 账号或 Release 附件。
 
 ### 安装已构建的包
 
