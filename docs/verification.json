@@ -1,0 +1,132 @@
+{
+  "date": "2026-11-15",
+  "package": "dsh-jingshen",
+  "packageVersion": "0.2.0",
+  "harnessVersion": "0.2.2-rc.3",
+  "nodeVersion": "24.22.1",
+  "platform": "linux",
+  "typecheck": "passed",
+  "automatedTests": {
+    "passed": 130,
+    "failed": 0,
+    "files": {
+      "activation.spec.ts": 10,
+      "autonomy.spec.ts": 16,
+      "client.spec.tsx": 12,
+      "control.spec.ts": 5,
+      "experience.spec.ts": 20,
+      "harness-bridge.spec.ts": 19,
+      "http.spec.ts": 8,
+      "self-change.spec.ts": 19,
+      "service.spec.ts": 21
+    }
+  },
+  "controlledNativeRuntime": {
+    "passed": true,
+    "kind": "controlled-runtime-integration",
+    "disclaimer": "Deterministic local protocol fixtures; no live-model reasoning or learning evaluated.",
+    "build": {
+      "packageName": "dsh-jingshen",
+      "packageVersion": "0.2.0",
+      "indexSha256": "fc9f49eefd5adb761c98b20b84584547dc711d12a615ce7a28887c9b32e770da",
+      "fixtureSha256": "ebed4a803b0b4718297b40410478cf70bc6cef8546fe9f7a28dd5c3840f62f0c"
+    },
+    "checks": [
+      {
+        "name": "full package mounts and native agent executes Spirit tools",
+        "passed": true
+      },
+      {
+        "name": "model tool roster exposes continuity tools without owner control setters",
+        "passed": true
+      },
+      {
+        "name": "native blank reuse preserves Spirit preset and tools while respecting explicit and unmanaged choices",
+        "passed": true
+      },
+      {
+        "name": "native create/read/post preserves self attribution and workspace membership",
+        "passed": true
+      },
+      {
+        "name": "session-local model and reasoning effort reach native requests",
+        "passed": true
+      },
+      {
+        "name": "ask mode awaits and records native rejection before mutation",
+        "passed": true
+      },
+      {
+        "name": "pause withdraws a pending native approval before its mutation",
+        "passed": true
+      },
+      {
+        "name": "permission changes invalidate an outstanding native approval grant",
+        "passed": true
+      },
+      {
+        "name": "full permission uses the selected standing access without extra asks",
+        "passed": true
+      },
+      {
+        "name": "self-change verifies through native shell, refuses failed checks, applies and rolls back a local candidate",
+        "passed": true
+      },
+      {
+        "name": "restart preserves awaiting_decision and never duplicates an accepted background turn",
+        "passed": true
+      },
+      {
+        "name": "restart preserves native logs/model choice and one-shot revisit reaches spirit_decide",
+        "passed": true
+      },
+      {
+        "name": "parallel permission/pause controls converge and revoke queued native activity",
+        "passed": true
+      },
+      {
+        "name": "fault injection: delayed native pause flush cannot overtake newer resume permission state",
+        "passed": true
+      },
+      {
+        "name": "fault injection: permission/pause/resume overlap reconciles the latest owner revision",
+        "passed": true
+      },
+      {
+        "name": "direct native input while paused invokes neither model stream nor tool action",
+        "passed": true
+      },
+      {
+        "name": "pause prevents deadline dispatch while keeping unresolved intentions",
+        "passed": true
+      },
+      {
+        "name": "pause cancels active inference and stop prevents future autonomous actions",
+        "passed": true
+      }
+    ]
+  },
+  "standaloneSource": {
+    "cleanNpmCi": "passed",
+    "typecheck": "passed",
+    "build": "passed"
+  },
+  "browser": {
+    "status": "passed-public-package",
+    "pageErrors": 0,
+    "viewport": "1920x1080",
+    "freshContextAndReloadPresetPreserved": true,
+    "permissionAndPauseControls": "passed",
+    "liveModelCalls": 0
+  },
+  "sha256": {
+    "lib/index.js": "fc9f49eefd5adb761c98b20b84584547dc711d12a615ce7a28887c9b32e770da",
+    "lib/client.js": "1a5bb19633ef21cf2d835dcd4206dd2b263b403bcc61d4ce24654d2e110aa355",
+    "tests/runtime-smoke.mjs": "ebed4a803b0b4718297b40410478cf70bc6cef8546fe9f7a28dd5c3840f62f0c"
+  },
+  "notEvaluated": [
+    "Live-model long-term autonomous learning and improvement",
+    "Windows runtime and PowerShell execution"
+  ],
+  "author": "fenglin"
+}

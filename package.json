@@ -1,0 +1,136 @@
+{
+  "name": "dsh-jingshen",
+  "version": "0.2.0",
+  "description": "精神：可持续活动、检验经验并改造自身的 DeepSeek Harness 个人助手。",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/en.json": "./marketplace/locale/en.json",
+    "./locale/zh.json": "./marketplace/locale/zh.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "upstream",
+    "scripts",
+    "tests",
+    "tsconfig.json",
+    "tsdown.config.ts",
+    "vitest.config.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "docs",
+    "LICENSE",
+    "NOTICE",
+    "marketplace/locale",
+    "marketplace/RELEASE-VALIDATION.md",
+    "screenshots.json",
+    "media/screenshots"
+  ],
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": "0.2.2-rc.3"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsdown --config tsdown.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "recover": "node scripts/spirit-recover.mjs",
+    "start": "node scripts/run.mjs"
+  },
+  "dependencies": {
+    "proper-lockfile": "4.1.2",
+    "zod": "4.6.6"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-workspace": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-permission-presets": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-host-webserver": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-scope": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-subprocess": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-locale": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-user-approval": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-sandbox": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-skill": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-agent-preset": "0.2.2-rc.3"
+  },
+  "devDependencies": {
+    "@types/jsdom": "28.0.3",
+    "@types/node": "22.20.0",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/react": "18.3.28",
+    "jsdom": "29.1.1",
+    "react": "18.3.1",
+    "tsdown": "0.22.14",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8",
+    "react-dom": "18.3.1",
+    "@types/react-dom": "18.3.7"
+  },
+  "author": "fenglin",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "spirit",
+    "personal-assistant",
+    "autonomy",
+    "memory",
+    "self-modification",
+    "精神",
+    "个人助手",
+    "jingshen",
+    "hegel"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fenglin233o/dsh-jingshen.git"
+  },
+  "homepage": "https://github.com/fenglin233o/dsh-jingshen#readme",
+  "bugs": {
+    "url": "https://github.com/fenglin233o/dsh-jingshen/issues"
+  }
+}

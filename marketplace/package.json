@@ -1,0 +1,14 @@
+{
+  "name": "spirit-marketplace-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --use-env-proxy check-release.mjs",
+    "index": "node --use-env-proxy build-index.mjs",
+    "verify": "node --use-env-proxy verify-index.mjs",
+    "submission": "node prepare-submission.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.3"
+  }
+}

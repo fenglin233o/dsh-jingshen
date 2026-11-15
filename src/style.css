@@ -1,0 +1,111 @@
+/* Host theme tokens also work when this panel is opened beside a native Session. */
+.spirit { --sp-text: var(--dsw-alias-label-primary, #23272f); --sp-muted: var(--dsw-alias-label-tertiary, #647084); --sp-line: var(--dsw-alias-border-l3, #dfe3ea); --sp-bg: var(--dsw-alias-bg-layer-1, #fff); --sp-hover: var(--dsw-alias-interactive-bg-hover, #f0f3f8); --sp-brand: var(--dsw-alias-brand-primary, #3868d8); --sp-error: var(--dsw-alias-state-error-primary, #ba3131); --sp-warn: var(--dsw-alias-state-warn-primary, #997000); box-sizing: border-box; height: 100%; min-height: 100%; overflow: auto; scrollbar-gutter: stable; container-type: inline-size; color: var(--sp-text); background: var(--sp-bg); font: 14px/1.65 var(--ds-font-family-body, system-ui, sans-serif); padding: 28px clamp(18px, 4vw, 48px) 40px; }
+.spirit *, .spirit *::before, .spirit *::after { box-sizing: border-box; }
+.spirit-content { max-width: 1120px; margin: 0 auto; }
+.spirit-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+[data-platform='darwin'] .spirit-header { padding-top: var(--dsh-frame-top-clearance, 0px); }
+.spirit h1 { margin: 0; font-size: 24px; line-height: 1.4; font-weight: 600; letter-spacing: .02em; }
+.spirit h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+.spirit h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.spirit h4 { margin: 16px 0 6px; font-size: 13px; font-weight: 600; }
+.spirit p { margin: 8px 0; overflow-wrap: anywhere; }
+.spirit small { font-size: 12px; color: var(--sp-muted); }
+.spirit .spirit-muted { color: var(--sp-muted); font-size: 13px; }
+.spirit .spirit-prose { white-space: pre-wrap; overflow-wrap: anywhere; }
+.spirit button { display: inline-flex; justify-content: center; align-items: center; gap: 5px; min-height: 34px; padding: 5px 11px; border: 1px solid var(--sp-line); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.spirit button:hover:not(:disabled) { background: var(--sp-hover); }
+.spirit button:focus-visible, .spirit input:focus-visible, .spirit summary:focus-visible, .spirit-tabpanel:focus-visible { outline: 2px solid var(--sp-brand); outline-offset: 3px; }
+.spirit button:disabled, .spirit fieldset:disabled { opacity: .5; cursor: default; }
+.spirit button.spirit-primary { background: var(--sp-brand); border-color: var(--sp-brand); color: var(--dsw-static-neutral-bluish-00, #fff); }
+.spirit button.spirit-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--sp-brand) 90%, var(--sp-text)); }
+.spirit button.spirit-danger { color: var(--sp-error); }
+.spirit-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.spirit-overview { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 16px; }
+.spirit-card { padding: 18px 20px; border: 1px solid var(--sp-line); border-radius: 14px; min-width: 0; }
+.spirit .spirit-runtime-title { display: flex; align-items: center; gap: 9px; margin: 16px 0 10px; font-size: 20px; font-weight: 500; }
+.spirit-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--sp-muted); }
+.spirit-dot[data-state='running'] { background: var(--dsw-alias-state-success-primary, #24874d); }
+.spirit-dot[data-state='paused'] { background: var(--sp-warn); }
+.spirit-runtime > .spirit-actions { margin-top: 16px; }
+.spirit-attention-text { color: var(--sp-warn); }
+.spirit-recovery { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--sp-line); font-size: 13px; }
+.spirit-permission-status { font-size: 13px; color: var(--sp-muted); }
+.spirit-permission-status[role='alert'] { color: var(--sp-error); }
+.spirit fieldset { min-width: 0; border: 0; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.spirit-permission-option { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--sp-line); border-radius: 9px; cursor: pointer; }
+.spirit-permission-option:has(input:checked) { border-color: var(--sp-brand); background: color-mix(in srgb, var(--sp-brand) 6%, transparent); }
+.spirit-permission-option input { accent-color: var(--sp-brand); margin: 5px 0 0; width: 15px; height: 15px; flex: none; }
+.spirit-permission-option strong { display: block; font-size: 13px; font-weight: 500; }
+.spirit-permission-option small { display: block; }
+.spirit .spirit-scope { font-size: 12px; }
+.spirit-permissions form > .spirit-actions { margin-top: 12px; }
+.spirit-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin-bottom: 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--sp-error) 30%, transparent); background: color-mix(in srgb, var(--sp-error) 6%, transparent); font-size: 13px; overflow-wrap: anywhere; }
+.spirit-error > button { flex: none; }
+.spirit-error p { margin: 3px 0; }
+.spirit-overview + .spirit-error { margin-top: 16px; }
+.spirit-live { color: var(--sp-muted); font-size: 13px; }
+.spirit-live:not(:empty) { margin: 0 0 12px; }
+.spirit-tabs { display: flex; gap: 20px; overflow-x: auto; border-bottom: 1px solid var(--sp-line); margin-top: 24px; padding: 0 2px; }
+.spirit .spirit-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap; padding: 10px 0; min-height: 44px; color: var(--sp-muted); }
+.spirit .spirit-tabs button[aria-selected='true'] { border-bottom-color: var(--sp-brand); color: var(--sp-text); font-weight: 500; }
+.spirit-tabs span { padding-left: 4px; color: var(--sp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.spirit-tabpanel { min-width: 0; padding-top: 20px; border-radius: 4px; }
+.spirit-section { min-width: 0; margin-bottom: 26px; }
+.spirit-section:last-child { margin-bottom: 0; }
+.spirit-record { min-width: 0; padding: 16px; border: 1px solid var(--sp-line); border-radius: 12px; margin-top: 12px; }
+.spirit-record-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.spirit-record-heading h3 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.spirit-record-heading h2 { margin-top: 8px; }
+.spirit-tag { display: inline-flex; flex: none; align-items: center; padding: 1px 7px; border: 1px solid var(--sp-line); border-radius: 6px; color: var(--sp-muted); font-size: 11px; line-height: 18px; }
+.spirit-record-meta { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; color: var(--sp-muted); font-size: 12px; overflow-wrap: anywhere; }
+.spirit button.spirit-link { border: 0; min-height: 28px; padding: 2px 0; color: var(--dsw-alias-link, var(--sp-brand)); font-size: 12px; }
+.spirit button.spirit-link:hover:not(:disabled) { background: none; text-decoration: underline; }
+.spirit-attention { padding: 12px 14px; margin: 12px 0; border-radius: 9px; background: color-mix(in srgb, var(--sp-warn) 10%, transparent); }
+.spirit-timeline { list-style: none; padding: 0; margin: 0; }
+.spirit-timeline li { padding: 12px 0; border-bottom: 1px solid var(--sp-line); }
+.spirit-timeline li:last-child { border-bottom: 0; }
+.spirit-timeline p:first-child { margin-top: 0; }
+.spirit-session-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.spirit-session-list .spirit-record { margin-top: 0; }
+.spirit-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 12px 0; font-size: 12px; }
+.spirit-meta dt { color: var(--sp-muted); }
+.spirit-meta dd { margin: 0; overflow-wrap: anywhere; }
+.spirit-columns { display: grid; grid-template-columns: minmax(170px, 240px) minmax(0, 1fr); gap: 24px; }
+.spirit-columns aside { border-right: 1px solid var(--sp-line); padding-right: 16px; min-width: 0; }
+.spirit-columns aside button { display: block; width: 100%; text-align: left; padding: 10px 12px; margin-bottom: 8px; }
+.spirit-columns aside button[aria-pressed='true'] { background: var(--sp-hover); border-color: var(--sp-brand); }
+.spirit-columns aside strong { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.spirit-columns aside small { display: block; margin-top: 4px; }
+.spirit-task { min-width: 0; }
+.spirit-task > .spirit-record-heading { margin-bottom: 18px; }
+.spirit-task .spirit-section { margin: 20px 0; }
+.spirit-task .spirit-section h3 { margin-bottom: 8px; }
+.spirit details { min-width: 0; border: 1px solid var(--sp-line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.spirit summary { cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
+.spirit details ul { padding-left: 22px; overflow-wrap: anywhere; }
+.spirit-history-check { border-left: 2px solid var(--sp-line); padding-left: 12px; font-size: 13px; }
+.spirit-activation { border-left: 2px solid var(--sp-line); padding-left: 12px; margin: 14px 0; font-size: 13px; }
+.spirit-activation [role='alert'] { color: var(--sp-error); }
+.spirit-memory-text { margin: 10px 0 16px; font-size: 14px; }
+.spirit-empty { padding: 44px 12px; color: var(--sp-muted); max-width: 640px; }
+.spirit-empty h2 { color: var(--sp-text); }
+.spirit-empty-inline { padding: 20px 0; color: var(--sp-muted); font-size: 13px; }
+.spirit-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--sp-line); margin-top: 28px; padding-top: 16px; }
+.spirit-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@container (max-width: 760px) {
+  .spirit-overview { grid-template-columns: 1fr; }
+  .spirit-session-list { grid-template-columns: 1fr; }
+  .spirit-columns { grid-template-columns: 1fr; gap: 16px; }
+  .spirit-columns aside { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--sp-line); padding: 0 0 10px; }
+  .spirit-columns aside button { min-width: 160px; max-width: 240px; margin: 0; }
+  .spirit-card { padding: 16px; }
+}
+@media (max-width: 600px) {
+  .spirit { padding: 20px 16px 32px; }
+  .spirit-header { flex-direction: column; }
+  .spirit-header > .spirit-actions { width: 100%; }
+  .spirit-header > .spirit-actions .spirit-primary { flex: 1; }
+  .spirit-tabs { gap: 18px; }
+  .spirit button { min-height: 40px; }
+  .spirit-error { align-items: flex-start; flex-direction: column; }
+}

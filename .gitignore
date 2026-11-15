@@ -1,0 +1,10 @@
+node_modules/
+*.tgz
+*.zip
+*.mp4
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+.DS_Store
+marketplace/generated/

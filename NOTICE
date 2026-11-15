@@ -1,0 +1,17 @@
+dsh-jingshen 0.2.0 · 精神
+
+This is an independently adapted personal plugin, not an official DeepSeek product.
+It incorporates code from deepseek-ai/dsh-superagent-prototype under the MIT license.
+Upstream snapshot: 8c32a9dc5d72c033816c6a8110b37f40cf94fba4
+Upstream URL: https://github.com/deepseek-ai/dsh-superagent-prototype
+The upstream LICENSE is included unchanged.
+
+The personal bundle reuses the upstream transactional Engine, SQLite Store and
+Effects queue. Necessary upstream source and migration assets are included in
+upstream/; PROVENANCE.json records small Harness API and asset-path adaptations.
+Conversation delivery and session-local model selection use new native rc.3 adapters.
+The GitHub/Feishu watchers, team setup, team prompts and upstream management UI are not mounted.
+
+The interpretation of Hegel and the new experience, memory, runtime and UI code belong
+to this adaptation. No claim is made that the software literally has consciousness,
+reproduces the philosophical necessity of the Phenomenology, or attains absolute knowing.
