@@ -6,7 +6,7 @@
 
 按用户选择的“市场插件中 GitHub star 数最多者”，主目标为 **[dshmarket](https://github.com/dsh-market/dsh-market)**。2026-11-15 15:18 UTC 的 GitHub API 查询显示其有 **12,508 stars**；同次查到的相关市场插件中，`LivXue/dsh-plugin-shop` 为 665，`dshplugin/dsh-plugin-hub` 为 528，`2BingLing/dsh-market` 为 208，`bradeGithub/DSH-Plugins-Marketplace` 为 205。另做了按 stars 降序的英文/中文市场关键词搜索，结果一致；这是对查到的相关插件的比较，不把精选目录的 stars 算成市场插件的 stars。可复查记录见 [market-selection.json](market-selection.json)。
 
-本次公开包名选为 **`dsh-jingshen`**，显示名仍为“精神”，作者署名 **fenglin**。用户没有 npm 账户，因此主发布路径是：**公开 GitHub 仓库 → 预构建 Release `.tgz` → awesome-dsh-plugin 单 YAML PR → 审核合并后由 dshmarket 目录同步**。GitHub 实际账户和仓库 URL 确认后再写入 metadata；署名不等同于 GitHub handle。无需为这条主路径先创建 npm 账户。
+本次公开包名选为 **`dsh-jingshen`**，显示名仍为“精神”，作者署名 **fenglin**，目标仓库为 **[fenglin233o/dsh-jingshen](https://github.com/fenglin233o/dsh-jingshen)**。用户没有 npm 账户，因此主发布路径是：**公开 GitHub 仓库 → 预构建 Release `.tgz` → awesome-dsh-plugin 单 YAML PR → 审核合并后由 dshmarket 目录同步**。无需为这条主路径先创建 npm 账户。仓库已创建；代码、Release 安装包及目录 PR 是否已公开，要分别以实际发布结果为准。
 
 ## 已核实的发布路径
 
@@ -32,7 +32,7 @@ Harness 0.2.2-rc.3 及本次核查的官方 `master` 都没有默认索引源。
 
 公开 npm 包名 **`dsh-spirit` 已被另一项目使用**：本次查询返回 200，维护者 `drscrewdriver`，最新版本 `0.9.0`，仓库为 `drscrewdriver/dsh-spirit`。不要把此项目发布到该名称下，也不要把现有包当成本项目的发布结果。`dsh-personal-spirit` 和 `dsh-jingshen` 在核查时返回 404；这不是保留名称或保证可发布。
 
-本次已确定包名 `dsh-jingshen` 和署名 fenglin，还需实际的 GitHub 账户和公开仓库。npm 路径仅为后续可选方案。原始源码 checkout 的 `origin` 指向 SuperAgent 上游，不能据此填成本项目的公开发布仓库。`submission.config.json` 对未知值使用 `null`；填写真实值后再生成投稿。
+本次已确定包名 `dsh-jingshen`、署名 fenglin 及 GitHub 仓库 `fenglin233o/dsh-jingshen`，这些真实信息已填入 `submission.config.json`。npm 路径仅为后续可选方案。原始源码 checkout 的 `origin` 指向 SuperAgent 上游，不能据此填成本项目的公开发布仓库。固定发行提交尚未确定时，`commit` 保持 `null`。
 
 最终包名改动要涵盖 `package.json`、lockfile、bundle patch 的插件 `name`、客户端模块加载 ID/构建配置，以及 `upstream/src/infra/paths.ts` 中的上游资源定位。预设 ID、状态目录名和历史会话标识可保持稳定，不应全局替换所有字符串。改名后需重新构建、检查和打包。
 
@@ -116,7 +116,7 @@ dsh plugin --profile spirit add "$RELEASE_TARBALL_URL"
 
 ## 生成社区投稿
 
-填写 `submission.config.json` 中的真实仓库、默认分支、包目录，以及已有的固定 Release tarball 或 Git 提交。仓库根就是插件目录时将 `packagePath` 设为空字符串。
+`submission.config.json` 已填写真实仓库、默认分支 `main`、根包目录和目标 Release tarball URL。固定 tag `v0.2.0` 下的 `dsh-jingshen-0.2.0.tgz` 实际上传后，须先核验该 URL 可公开下载，再提交目录 PR。为固定 Git 来源生成材料时，还要补入实际提交 SHA。仓库根就是插件目录时将 `packagePath` 设为空字符串。
 
 ```sh
 node marketplace/prepare-submission.mjs
@@ -127,7 +127,7 @@ node marketplace/prepare-submission.mjs
 awesome-dsh-plugin 的具体规则：
 
 1. 新增 `data/plugins/<owner>__<repo>.yml`；子目录条目用 `owner__repo--personal.yml` 并让 `url` 指向子目录。只提交自己这一项，不改自动生成的 README。
-2. 仓库创建已满 **1 天**，添加 `dsh-plugin` topic，具有真实代码和 `dsh.bundle`。这是社区自己的门槛。
+2. 添加 `dsh-plugin` topic，仓库应具有真实代码和 `dsh.bundle`。**可以在仓库满一天前提交 PR**；仓库创建满 **1 天**是通过年龄检查的条件，并非打开 PR 的前置条件。年龄是唯一失败原因时，保留原 PR 即可，不需要空提交或重开 PR。当前 `regate.yml` 按 `19 */6 * * *` 每六小时扫描；对同一 PR 的年龄失败重跑另有 **24 小时冷却**，还受重跑队列限制，因此不能承诺每个 PR 每六小时重跑或满一天就立即通过。
 3. 双语描述只陈述现有能力；当前条目选择 `workflow`。可选 `tarball` 必须是该 GitHub 仓库 Release 的 HTTPS `.tgz`；无需填写 `npm:` 字段，后者反而会被拒。
 4. CI 检查后由维护者阅读源码评审。合并后由社区构建发布目录；等待期间不能声称已收录。
 5. npm 包的 `repository` 必须正确指回该项目，社区才会自动建立 npm 映射。仅有 Release 包的条目进入其市场界面，但目前不进入其原生索引导出。
@@ -143,6 +143,8 @@ awesome-dsh-plugin 的具体规则：
 - [dshmarket 的投稿指引](https://github.com/dsh-market/dsh-market#submit-your-plugin)
 - [awesome-dsh-plugin 贡献指南（本次核查提交）](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/1cdd13cfeaae82c7f5c649b5d49866615a84edd3/contributing.md)
 - [awesome 原生索引导出仅含 npm 的实现](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/1cdd13cfeaae82c7f5c649b5d49866615a84edd3/scripts/lib/market-index.mjs)
+- [awesome 投稿年龄检查](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/1cdd13cfeaae82c7f5c649b5d49866615a84edd3/scripts/check-submission.mjs)
+- [awesome 自动重检计划与年龄失败冷却](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/1cdd13cfeaae82c7f5c649b5d49866615a84edd3/.github/workflows/regate.yml)
 - [开放插件市场贡献指南](https://github.com/polang233/dsh-plugin-index/blob/HEAD/.github/CONTRIBUTING.md)
 
 在本机还核对了已安装的官方 0.2.2-rc.3 `dsh-plugin-market-index`、`dsh-plugin-market`、`dsh-plugin-manager` 与 `dsh/docs`。公开名称查询摘要见 [research.json](research.json)。

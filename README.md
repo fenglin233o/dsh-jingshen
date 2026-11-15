@@ -10,7 +10,7 @@
 
 作者：fenglin。源码与问题反馈：[fenglin233o/dsh-jingshen](https://github.com/fenglin233o/dsh-jingshen)。
 
-本项目的 npm 名称为 `dsh-jingshen`，当前通过 GitHub Release 提供安装包；npm 上的 `dsh-spirit` 属于另一个项目。社区市场收录采用 dshmarket 的目录审核流程，提交申请与正式收录是两个状态。详情见 [市场发布说明](marketplace/README.md)。
+本项目的包名为 `dsh-jingshen`，公开发行采用 GitHub Release 安装包，实际发布状态见仓库的 [Releases](https://github.com/fenglin233o/dsh-jingshen/releases)；npm 上的 `dsh-spirit` 属于另一个项目。社区市场收录采用 dshmarket 的目录审核流程，提交申请与正式收录是两个状态。详情见 [市场发布说明](marketplace/README.md)。
 
 ![精神的本地 Web 面板](media/screenshots/panel.png)
 
