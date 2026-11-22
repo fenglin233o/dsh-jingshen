@@ -9,6 +9,6 @@
     "submission": "node prepare-submission.mjs"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.3"
+    "@deepseek-ai/dsh-plugin-market-index": "0.2.2-rc.5"
   }
 }

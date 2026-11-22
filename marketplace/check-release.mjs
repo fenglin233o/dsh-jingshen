@@ -13,7 +13,7 @@ try {
   const manifest = await jsonFile(packageFile('package.json'));
   check(manifest.private !== true, 'personal/package.json must not be private.');
   check(manifest.name !== 'dsh-spirit', 'The public npm name dsh-spirit belongs to another project. Choose the actual publishing name first.');
-  check(manifest.engines?.dsh === '0.2.2-rc.3', 'Keep engines.dsh at the tested 0.2.2-rc.3 until other versions are verified.');
+  check(manifest.engines?.dsh === '0.2.2-rc.5', 'Keep engines.dsh at the tested 0.2.2-rc.5 until other versions are verified.');
   check(manifest.engines?.node === '>=24.9.0', 'Expected the tested Node.js >=24.9.0 requirement.');
   check(Array.isArray(manifest.keywords) && manifest.keywords.includes('dsh-plugin'), 'Add search keywords, including dsh-plugin.');
   check(!!manifest.repository, 'A real public source repository is required for the planned community submissions.');

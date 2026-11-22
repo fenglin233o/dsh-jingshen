@@ -10,7 +10,7 @@ export interface OwnerControl {
   changedAt: string
   reason: string
 }
-export interface ManagedSession { id: string; title: string; reason: string; createdAt: string; kind: 'main' | 'task' | 'initiative' }
+export interface ManagedSession { id: string; title: string; reason: string; createdAt: string; previousPermission?: string; kind: 'main' | 'task' | 'initiative' | 'conversation' }
 export interface Activity { id: string; at: string; kind: string; summary: string; reason?: string; sessionId?: string }
 const stamp = () => new Date().toISOString()
 
@@ -45,13 +45,20 @@ export class SpiritControl {
     if (value.state !== 'running') throw new Error(value.state === 'paused' ? '本人已暂停精神的活动' : '本人已停止精神的活动')
     if (revision !== undefined && value.revision !== revision) throw new Error('权限或活动状态已改变；重新判断后再执行')
   }
-  manage(id: string, title: string, reason: string, kind: ManagedSession['kind']): void {
-    const previous = this.sessions().find(item => item.id === id)
-    const value: ManagedSession = { id, title, reason, kind, createdAt: previous?.createdAt ?? stamp() }
+  manage(id: string, title: string, reason: string, kind: ManagedSession['kind'], previousPermission?: string): void {
+    const previous = this.session(id)
+    const value: ManagedSession = { id, title, reason, kind, ...(kind === 'conversation' ? { previousPermission: previousPermission ?? previous?.previousPermission } : {}), createdAt: previous?.createdAt ?? stamp() }
     this.store.db.prepare('INSERT INTO spirit_sessions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(id, JSON.stringify(value))
   }
   sessions(): ManagedSession[] {
     return this.store.db.prepare('SELECT value FROM spirit_sessions ORDER BY rowid').all().map(row => JSON.parse(String(row.value)) as ManagedSession)
+  }
+  session(id: string): ManagedSession | undefined {
+    const row = this.store.db.prepare('SELECT value FROM spirit_sessions WHERE id=?').get(id)
+    return row && JSON.parse(String(row.value)) as ManagedSession
+  }
+  releaseConversation(id: string): boolean {
+    return this.store.db.prepare("DELETE FROM spirit_sessions WHERE id=? AND json_extract(value,'$.kind')='conversation'").run(id).changes === 1
   }
   managed(id: string): boolean { return !!this.store.db.prepare('SELECT id FROM spirit_sessions WHERE id=?').get(id) }
   watch(id: string, reason: string): void {

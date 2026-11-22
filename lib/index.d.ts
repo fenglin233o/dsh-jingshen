@@ -5,6 +5,7 @@ declare const name = "dsh-jingshen";
 declare const inject: string[];
 interface SpiritConfig {
   stateDir: string;
+  openIntervalMinutes: number;
   concurrency: number;
   maxRevisions: number;
   sourceRoot: string;

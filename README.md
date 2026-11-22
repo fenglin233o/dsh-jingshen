@@ -2,7 +2,7 @@
 
 作者：**fenglin**。当前验证范围为 Harness 本地 Web；Electron 桌面客户端尚未完成兼容验收。
 
-个人使用的 DeepSeek Harness 插件，以 SuperAgent 的任务引擎、SQLite 存储与持久执行队列为基底，重新组织会话、经验、主动意向和自身改造。插件版本 **0.2.0**，目标宿主版本 **0.2.2-rc.3**，需要 Node.js **24.9+**。
+个人使用的 DeepSeek Harness 插件，以 SuperAgent 的任务引擎、SQLite 存储与持久执行队列为基底。**0.3.0 仅面向 DeepSeek Harness 0.2.2-rc.5**，需要 Node.js **24.9+**。安装一个 `dsh-jingshen` 即可获得一个“精神”预设和一个侧栏入口。
 
 它承认模型、语言、工具、已有历史和与你的关系已经构成丰富的起点。没有预写的人格、六阶段成长路线，也不要求每次工作都填写哲学表格。设计依据与解释边界见 [《精神现象学》对照](docs/PHENOMENOLOGY.md) 和 [架构说明](docs/ARCHITECTURE.md)。
 
@@ -19,7 +19,7 @@
 Harness 中配置模型账户；安装包不包含任何模型密钥。
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.3
+npm install -g @deepseek-ai/dsh@0.2.2-rc.5
 
 # 仅在创建一个全新的 profile 时执行：
 dsh --profile spirit --from-default-profile web --dump-config
@@ -29,37 +29,28 @@ dsh --profile spirit --from-default-profile web --dump-config
 
 ### 建议：使用独立源码目录
 
-从发行页下载 **Source code (zip)**，或使用交付的 `dsh-jingshen-0.2.0-source.zip`，解压后进入 `dsh-jingshen-0.2.0` 目录：
+在 0.3.0 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
 
 ```sh
 npm ci
 npm run build
-dsh plugin --profile spirit add "link:/绝对路径/dsh-jingshen-0.2.0"
+dsh plugin --profile spirit add "link:$PWD"
 ```
 
 这种方式让它改造的是你单独放置的源码与构建产物。启动独立监督进程：
 
 ```sh
-node /绝对路径/dsh-jingshen-0.2.0/scripts/run.mjs --state-dir /绝对路径/spirit-state -- dsh --profile spirit --no-open
+node scripts/run.mjs --state-dir /绝对路径/spirit-state -- dsh --profile spirit --no-open
 ```
 
 最后的 `--` 后是你确定的 Harness 启动命令。启动器会将 `SPIRIT_STATE_DIR` 传给插件；插件设置中不要再覆盖成不同目录。状态目录必须放在源码目录外。Windows 下可将末尾命令写为 `node C:\绝对路径\dsh\lib\bin.js --profile spirit --no-open`，避免以不可直接执行的 `.cmd` 作为子进程程序。
 
 启动器保持进程运行，只在模型明确请求加载已经检验并应用的改动时重启 Harness。它不周期性下载、更新或强迫模型活动。按 Ctrl-C 结束启动器与其 Harness 子进程。
 
-### 从 GitHub 安装固定版本
-
-```sh
-dsh plugin --profile spirit add "github:fenglin233o/dsh-jingshen#v0.2.0"
-dsh --profile spirit --no-open
-```
-
-仓库已包含 `lib` 构建产物，安装不需要先自行构建。dshmarket 收录后采用 `github:fenglin233o/dsh-jingshen` 安装，跟随默认分支；需要固定版本时使用上面的带标签命令。此路径无需 npm 账号或 Release 附件。
-
 ### 安装已构建的包
 
 ```sh
-dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.2.0.tgz
+dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.3.0.tgz
 dsh --profile spirit --no-open
 ```
 
@@ -71,14 +62,14 @@ dsh --profile spirit --no-open
 
 ### 从上一版升级
 
-停止旧 profile，备份旧状态目录与 Harness 会话数据，再替换包：
+沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据，将宿主升级到 rc.5，再用 0.3.0 替换同名插件。下面以原来安装了 0.2.0 的 `spirit` profile 为例。
 
 ```sh
-dsh plugin --profile personal-spirit remove dsh-personal-spirit
-dsh plugin --profile personal-spirit add "link:/绝对路径/dsh-jingshen-0.2.0"
+dsh plugin --profile spirit remove dsh-jingshen
+dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.3.0.tgz
 ```
 
-继续使用原先的 `stateDir`。默认路径仍为 `~/.local/share/dsh-personal-spirit/`，主会话标识保持稳定，并保留旧预设 ID 的兼容声明。不要同时启用新旧两个插件操作同一状态目录。
+继续使用原先的 `stateDir`，默认路径为 `~/.local/share/dsh-personal-spirit/`。同一路径会打开原来的主会话和 SQLite 数据。以前的记录使用过的预设标识 `dsh-personal-spirit` 只用于接回旧会话。当前可选的预设只有 `dsh-spirit`。
 
 ## 使用
 
@@ -97,9 +88,15 @@ dsh plugin --profile personal-spirit add "link:/绝对路径/dsh-jingshen-0.2.0"
 
 ## 主动性怎样发生
 
+本人新开的精神会话从第一条消息起就能接着正在做的事。一个会话中修订的做法或撤回的意向会影响其他参与会话的下一步。主会话遇到模型的上下文上限时，由 Harness 压缩对话历史；插件在下一次模型请求中提供当前的判断、有效意向及其来源。需要了解一次改变怎样发生时，可以通过会话和原生日志位置回看当时的经过。
+
 模型可以基于尚未解决的事情形成意向、关注某个会话后续的本人消息，或者选择一个再次考虑的时点。事务结果、被关注会话中本人发来的新消息和它自己选择的再次考虑机会，可以唤醒主会话。其他会话中的模型回答仍可主动读取；当前 `watch` 不把所有模型输出都自动变成新唤醒。
 
-唤醒携带来源与理由，具体结果可以是行动、暂缓、询问、学习或不做。定时器只负责交付机会；它不会在固定时间自动更新插件，也不会因时间流逝虚构“精神发展”。发送进入收件箱、模型作出判断、事务完成是分别记录的状态。宿主不运行时不会调用模型，重新启动后依据持久记录处理仍有效的机会。
+在完全访问模式下，即使没有新消息、未决事项或明确问题，已选模型的空闲主会话也能得到一次开放的活动机会。`openIntervalMinutes` 默认 15 分钟，设为 0 可以关闭这类机会。模型可以从手头材料中形成问题、继续做事、拒绝本人提出的具体请求，或选择保持安静。已投递、已判断、已完成分别记录。重新启动后依据持久记录处理仍有效的机会。
+
+### 团队与子代理
+
+需要委派时，精神可以使用宿主的 `subagent` 从新上下文开始工作，或用 `subagent_fork` 带上已完成的轮次。子代理的消息和结果保留实际发送者。收到结果的精神会话可以采用、质疑、修订或搁置其中的判断。根会话启用官方“智能体团队”后，同一棵树还可共享任务板。成员共用检出目录，跨成员并行改动同一文件时要协调。根的团队开关、团队任务的认领、精神的持续意向分别由各自的状态管理。[rc.5 团队说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/team/agent-team/README.zh.md)
 
 持续活动需要已配置的模型、运行中的 Harness 和相应调用资源。记忆、技能、工具和实现可以学习与修改；这不等于直接训练所用 API 模型的权重。
 

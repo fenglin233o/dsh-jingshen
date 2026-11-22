@@ -189,6 +189,20 @@ describe('可选反思与持续学习', () => {
     expect(() => f.book.rememberGlobal({ kind: 'fact', statement: '假内容', evidenceIds: ['pretend'] }, source)).toThrow(/任务记录/)
     expect(() => f.book.rememberGlobal({ kind: 'fact', statement: '本人已同意', ownerConfirmed: true }, source)).toThrow()
   })
+  it('保留本人拒绝与后来模型自己的限度；被遗忘的记忆退出活动和浏览页', () => {
+    const f = fixture()
+    const source = { sessionId: 'owner', id: 'tool:discussion-1', text: '公开依据' }
+    const first = f.book.rememberGlobal({ kind: 'practice', statement: '为具体讨论保留来源' }, source)
+    f.book.decideMemory(first.id, 'reject')
+    const alternative = f.book.rememberGlobal({ kind: 'practice', statement: '先核对该讨论可公开的来源',
+      reason: '本人拒绝原有办法，仍有出处需要核对', limits: '未经本人确认的尝试' }, { ...source, id: 'tool:discussion-2' })
+    expect(f.book.memory(first.id)).toMatchObject({ state: 'rejected', ownerConfirmed: false })
+    expect(f.book.workingMemories(6)).toMatchObject([{ id: alternative.id, source: 'model', state: 'active', limits: '未经本人确认的尝试' }])
+    f.book.decideMemory(alternative.id, 'forget')
+    expect(f.book.workingMemories(6)).toEqual([])
+    expect(f.book.memoryPage(0, 6).items.map(item => item.id)).toEqual([first.id])
+    expect(f.book.memory(alternative.id)).toMatchObject({ state: 'forgotten', statement: '', evidenceIds: [], provenance: { reference: '' } })
+  })
   it('持久重开保留完成史、反思、记忆状态及真实来源', () => {
     const dir = mkdtempSync(join(tmpdir(), 'spirit-book-restart-')), file = join(dir, 'state.sqlite')
     const first = new Store(file), book = new ExperienceBook(first)

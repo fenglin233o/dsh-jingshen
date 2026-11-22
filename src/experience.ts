@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Store } from '../upstream/src/app/store.ts'
+import type { TurnReference } from './continuity.ts'
 
 const text = z.string().trim().min(1).max(8000)
 const note = z.string().trim().max(8000)
@@ -38,9 +39,10 @@ export const MemoryInput = z.object({
   state: z.enum(['active', 'proposed']).default('active'),
 }).strict().refine(value => !!value.statement || !!value.claimId, '需要记忆内容或已有判断的引用')
 
-export type RequestSource = { kind: 'owner'; sessionId: string; id: string; text: string }
-  | { kind: 'self'; sessionId: string; id: string; text: string; reason: string; grantRevision: number }
-export type ConversationSource = { sessionId: string; id: string; text: string }
+export interface IntentBasis { id: string; revision: number }
+export type RequestSource = { kind: 'owner'; sessionId: string; id: string; text: string; turn?: TurnReference }
+  | { kind: 'self'; sessionId: string; id: string; text: string; reason: string; grantRevision: number; intent?: IntentBasis; turn?: TurnReference }
+export type ConversationSource = { sessionId: string; id: string; text: string; turn?: TurnReference }
 export type Evidence = { id: string; kind: z.infer<typeof EvidenceInput>['kind'] | 'user' | 'initiative'; reference: string; content: string; at: string;
   source?: RequestSource }
 export type Claim = { id: string; statement: string; evidenceIds: string[] }
@@ -48,9 +50,9 @@ export type Frame = { number: number; object: string; claims: Claim[]; criteria:
   transition?: { negated: string[]; preserved: string[]; reason: string; examination: number;
     criterionChanges: z.infer<typeof RevisionInput>['criterionChanges'] } }
 export type Examination = z.infer<typeof ExaminationInput> & { id: number; round: number; at: string }
-export interface Completion { text: string; limits: string; frame?: number; evidenceIds: string[]; check: string; round: number; at: string }
+export interface Completion { text: string; limits: string; frame?: number; evidenceIds: string[]; check: string; round: number; at: string; turn?: TurnReference }
 export interface Reflection extends z.infer<typeof ReflectionInput> {
-  id: string; ticketId?: string; at: string; provenance: { kind: 'model'; reference: string; sessionId?: string }
+  id: string; ticketId?: string; at: string; provenance: { kind: 'model'; reference: string; sessionId?: string; turn?: TurnReference }
 }
 export interface Experience {
   ticketId: string; ownerSession: string; requestId: string; round: number;
@@ -63,13 +65,23 @@ export interface Memory {
   id: string; kind: 'preference' | 'fact' | 'practice'; statement: string;
   ticketId: string; claimId: string; evidenceIds: string[];
   state: 'active' | 'proposed' | 'accepted' | 'rejected' | 'forgotten' | 'superseded';
-  provenance: { kind: 'model' | 'owner'; reference: string; reason: string; at: string; sessionId?: string; context?: string };
+  provenance: { kind: 'model' | 'owner'; reference: string; reason: string; at: string; sessionId?: string; context?: string; turn?: TurnReference };
   ownerConfirmed: boolean; limits: string;
   history: { action: 'record' | 'accept' | 'reject' | 'correct' | 'forget' | 'supersede'; at: string; reason?: string; replacementId?: string }[];
   replaces?: string; createdAt: string; updatedAt: string;
 }
 const stamp = () => new Date().toISOString()
 const unique = (values: string[]) => new Set(values).size === values.length
+const excerpt = (value: string, limit: number) => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
+const workingSource = (source: RequestSource) => ({ ...source, text: excerpt(source.text, 2000),
+  ...(source.kind === 'self' ? { reason: excerpt(source.reason, 600) } : {}) })
+const readMemory = (row: { value: unknown }): Memory => {
+  const memory = JSON.parse(String(row.value)) as Memory
+  memory.provenance ??= { kind: 'model', reference: memory.claimId, reason: '从任务判断提出的历史记录', at: memory.createdAt }
+  memory.ownerConfirmed ??= memory.state === 'accepted'
+  memory.limits ??= ''; memory.history ??= []
+  return memory
+}
 
 /** Uses the upstream transaction boundary: a report and its experience commit or roll back together. */
 export class ExperienceBook {
@@ -77,9 +89,11 @@ export class ExperienceBook {
     store.db.exec(`CREATE TABLE IF NOT EXISTS spirit_experience (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_memory (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_reflection (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS spirit_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`)
+      CREATE TABLE IF NOT EXISTS spirit_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS spirit_reflection_ticket ON spirit_reflection(value->>'$.ticketId');
+      CREATE INDEX IF NOT EXISTS spirit_memory_usable ON spirit_memory((value->>'$.state')) WHERE value->>'$.state' IN ('active','accepted');`)
   }
-  get(id: string): Experience {
+  private load(id: string): Experience {
     const row = this.store.db.prepare('SELECT value FROM spirit_experience WHERE id=?').get(id)
     if (!row) throw new Error('没有找到这个任务的经验记录')
     const value = JSON.parse(String(row.value)) as Experience
@@ -89,21 +103,40 @@ export class ExperienceBook {
     value.requests ??= [{ ...value.source, at: value.evidence[0]?.at ?? stamp() }]
     value.results ??= value.result ? [{ ...value.result, round: value.round, evidenceIds: value.result.evidenceIds ?? [], check: value.result.check ?? '' }] : []
     if (value.result) value.result = { ...value.result, round: value.result.round ?? value.round, evidenceIds: value.result.evidenceIds ?? [], check: value.result.check ?? '' }
+    value.reflections = []
+    return value
+  }
+  latestRequestSource(id: string): RequestSource {
+    const row = this.store.db.prepare("SELECT value -> '$.latestSource' AS source FROM spirit_experience WHERE id=?").get(id)
+    return row?.source ? JSON.parse(String(row.source)) as RequestSource : this.load(id).latestSource
+  }
+  get(id: string): Experience {
+    const value = this.load(id)
     value.reflections = this.reflections(id)
     return value
   }
   /** Bounded working view; complete, unmodified evidence and history remain separately addressable. */
   context(id: string) {
-    const value = this.get(id), current = value.frames.at(-1)
-    return { ticketId: id, round: value.round, source: value.source, latestSource: value.latestSource, parentTicketId: value.parentTicketId,
-      criteria: current?.criteria ?? value.criteria,
-      current: current && { ...current, object: current.object.slice(0, 3000), limits: current.limits.slice(0, 2000),
-        claims: current.claims.map(item => ({ ...item, statement: item.statement.slice(0, 1200) })) },
-      history: value.frames.slice(-32).map(frame => ({ number: frame.number, object: frame.object.slice(0, 300), transition: frame.transition })),
-      evidence: value.evidence.slice(-24).map(item => ({ ...item, content: item.content.slice(0, 500), reference: item.reference.slice(0, 300) })),
-      examination: value.examinations.at(-1), result: value.result, reflections: value.reflections.slice(-12), recovery: value.recovery,
+    const value = this.load(id), current = value.frames.at(-1), examination = value.examinations.at(-1)
+    const criteria = (current?.criteria ?? value.criteria).map(item => ({ ...item, text: excerpt(item.text, 240) }))
+    const reflections = this.reflectionPage(0, 4, id).items.reverse().map(item => ({ id: item.id, at: item.at, new: excerpt(item.new, 400),
+      reason: item.reason && excerpt(item.reason, 250), provenance: item.provenance }))
+    const transition = current?.transition
+    return { ticketId: id, round: value.round, source: workingSource(value.source), latestSource: workingSource(value.latestSource), parentTicketId: value.parentTicketId,
+      criteria, current: current && { number: current.number, at: current.at, object: excerpt(current.object, 1100), limits: excerpt(current.limits, 600),
+        transition: transition && { reason: excerpt(transition.reason, 600), examination: transition.examination }, totalClaims: current.claims.length,
+        claims: current.claims.slice(-10).map(item => ({ ...item, statement: excerpt(item.statement, 400), evidenceIds: item.evidenceIds.slice(0, 8) })) },
+      history: value.frames.slice(-10).map(frame => ({ number: frame.number, object: excerpt(frame.object, 180),
+        transition: frame.transition && { reason: excerpt(frame.transition.reason, 180), examination: frame.transition.examination } })),
+      evidence: value.evidence.slice(-12).map(item => ({ ...item, source: item.source && workingSource(item.source),
+        content: excerpt(item.content, 320), reference: excerpt(item.reference, 160) })),
+      examination: examination && { id: examination.id, frame: examination.frame, round: examination.round, at: examination.at,
+        checks: examination.checks.map(item => ({ criterionId: item.criterionId, outcome: item.outcome })),
+        contradictionCount: examination.contradictions.length + examination.criterionContradictions.length },
+      result: value.result && { ...value.result, text: excerpt(value.result.text, 1600), limits: excerpt(value.result.limits, 400), check: excerpt(value.result.check, 400) },
+      reflections, recovery: value.recovery && { ...value.recovery, instruction: excerpt(value.recovery.instruction, 600) },
       totalEvidence: value.evidence.length, totalFrames: value.frames.length, totalResults: value.results.length,
-      readMore: '这是工作视图，部分长文本截短；spirit_read 的 evidenceId 或 frame 可读取原记录。结构化形态与检验是可选工具。' }
+      readMore: '这是工作视图，部分长文本截短；可用 spirit_read 的 evidenceId、frame、resultRound 或 action=reflections 读取原记录。' }
   }
   private save(value: Experience): void {
     const { reflections: _reflections, ...stored } = value
@@ -209,11 +242,11 @@ export class ExperienceBook {
     value.frames.push(frame); delete value.result
     this.save(value); return frame
   }
-  complete(ticketId: string, result: string, limits = '', evidenceIds: string[] = [], check = ''): void {
+  complete(ticketId: string, result: string, limits = '', evidenceIds: string[] = [], check = '', turn?: TurnReference): void {
     const value = this.get(ticketId), frame = value.frames.at(-1)
     this.references(value, evidenceIds)
     const completion: Completion = { text: z.string().trim().min(1).max(12000).parse(result), limits: note.parse(limits), evidenceIds: [...evidenceIds], check: note.parse(check),
-      ...(frame ? { frame: frame.number } : {}), round: value.round, at: stamp() }
+      ...(frame ? { frame: frame.number } : {}), round: value.round, at: stamp(), ...(turn ? { turn } : {}) }
     value.result = completion; value.results.push(completion)
     this.save(value)
   }
@@ -224,7 +257,7 @@ export class ExperienceBook {
     const reference = source?.id ?? value?.latestSource.id
     if (!reference) throw new Error('反思需要可追溯的会话或任务来源')
     const reflection: Reflection = { ...parsed, id: randomUUID(), ...(ticketId ? { ticketId } : {}), at: stamp(),
-      provenance: { kind: 'model', reference, sessionId: source?.sessionId ?? value?.ownerSession } }
+      provenance: { kind: 'model', reference, sessionId: source?.sessionId ?? value?.ownerSession, ...(source?.turn ? { turn: source.turn } : {}) } }
     this.store.db.prepare('INSERT INTO spirit_reflection VALUES (?,?)').run(reflection.id, JSON.stringify(reflection))
     return reflection
   }
@@ -234,16 +267,41 @@ export class ExperienceBook {
       : this.store.db.prepare('SELECT value FROM spirit_reflection ORDER BY rowid').all()
     return rows.map(row => JSON.parse(String(row.value)) as Reflection)
   }
+  reflectionPage(offset: number, limit: number, ticketId?: string) {
+    const where = ticketId ? " WHERE value->>'$.ticketId'=?" : ''
+    const parameters = ticketId ? [ticketId] : []
+    const total = Number(this.store.db.prepare(`SELECT count(*) AS total FROM spirit_reflection${where}`).get(...parameters)?.total)
+    const items = this.store.db.prepare(`SELECT value FROM spirit_reflection${where} ORDER BY rowid DESC LIMIT ? OFFSET ?`)
+      .all(...parameters, limit, offset).map(row => JSON.parse(String(row.value)) as Reflection)
+    return { items, total }
+  }
+  reflection(id: string): Reflection {
+    const row = this.store.db.prepare('SELECT value FROM spirit_reflection WHERE id=?').get(id)
+    if (!row) throw new Error('反思记录不存在')
+    return JSON.parse(String(row.value)) as Reflection
+  }
   memories(state?: Memory['state']): Memory[] {
-    const rows = this.store.db.prepare('SELECT value FROM spirit_memory ORDER BY rowid DESC').all()
-    const memories = rows.map(row => {
-      const memory = JSON.parse(String(row.value)) as Memory
-      memory.provenance ??= { kind: 'model', reference: memory.claimId, reason: '从任务判断提出的历史记录', at: memory.createdAt }
-      memory.ownerConfirmed ??= memory.state === 'accepted'
-      memory.limits ??= ''; memory.history ??= []
-      return memory
-    })
-    return state ? memories.filter(item => item.state === state) : memories
+    return this.store.db.prepare("SELECT value FROM spirit_memory WHERE (? IS NULL OR value->>'$.state'=?) ORDER BY rowid DESC")
+      .all(state ?? null, state ?? null).map(row => readMemory({ value: row.value }))
+  }
+  memory(id: string): Memory {
+    const row = this.store.db.prepare('SELECT value FROM spirit_memory WHERE id=?').get(id)
+    if (!row) throw new Error('记忆不存在')
+    return readMemory({ value: row.value })
+  }
+  memoryPage(offset: number, limit: number) {
+    const where = "WHERE value->>'$.state' IS NOT 'forgotten'"
+    const total = Number(this.store.db.prepare(`SELECT count(*) AS total FROM spirit_memory ${where}`).get()?.total)
+    const items = this.store.db.prepare(`SELECT value FROM spirit_memory ${where} ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(limit, offset)
+      .map(row => readMemory({ value: row.value }))
+    return { items, total }
+  }
+  workingMemories(limit: number) {
+    return this.store.db.prepare(`SELECT id, value->>'$.kind' AS kind, substr(value->>'$.statement',1,260) AS statement,
+      substr(coalesce(value->>'$.limits',''),1,240) AS limits, value->>'$.state' AS state,
+      coalesce(value->>'$.provenance.kind','model') AS source, coalesce(value->>'$.ownerConfirmed',value->>'$.state'='accepted') AS ownerConfirmed
+      FROM spirit_memory
+      WHERE value->>'$.state' IN ('active','accepted') ORDER BY rowid DESC LIMIT ?`).all(limit)
   }
   usableMemories(): Memory[] { return this.memories().filter(item => item.state === 'active' || item.state === 'accepted') }
   private saveMemory(memory: Memory): void {
@@ -267,17 +325,18 @@ export class ExperienceBook {
       const reference = source?.id ?? value?.latestSource.id
       if (!reference) throw new Error('记忆需要可追溯的会话或任务来源')
       const statement = parsed.statement ?? claim!.statement
-      const found = this.memories().find(item => item.state !== 'forgotten' && item.state !== 'superseded' && item.state !== 'rejected'
-        && item.ticketId === (ticketId ?? '') && item.provenance.reference === reference && item.statement === statement
-        && item.kind === parsed.kind && item.limits === (parsed.limits ?? '') && item.replaces === parsed.replaces)
-      if (found) return found
-      const previous = parsed.replaces ? this.usableMemories().find(item => item.id === parsed.replaces) : undefined
-      if (parsed.replaces && !previous) throw new Error('只能修订一条有效记忆')
+      const row = this.store.db.prepare(`SELECT value FROM spirit_memory WHERE value->>'$.state' NOT IN ('forgotten','superseded','rejected')
+        AND value->>'$.ticketId'=? AND coalesce(value->>'$.provenance.reference',value->>'$.claimId')=?
+        AND value->>'$.statement'=? AND value->>'$.kind'=? AND coalesce(value->>'$.limits','')=? AND value->>'$.replaces' IS ?
+        ORDER BY rowid DESC LIMIT 1`).get(ticketId ?? '', reference, statement, parsed.kind, parsed.limits ?? '', parsed.replaces ?? null)
+      if (row) return readMemory({ value: row.value })
+      const previous = parsed.replaces ? this.memory(parsed.replaces) : undefined
+      if (previous && previous.state !== 'active' && previous.state !== 'accepted') throw new Error('只能修订一条有效记忆')
       const at = stamp()
       const memory: Memory = { id: randomUUID(), kind: parsed.kind, statement, ticketId: ticketId ?? '', claimId: parsed.claimId ?? '', evidenceIds,
         state: parsed.state, ownerConfirmed: false, limits: parsed.limits ?? '',
         provenance: { kind: 'model', reference, reason: parsed.reason ?? '根据当前材料形成的可修订记忆', at,
-          sessionId: source?.sessionId ?? value?.ownerSession, ...(source ? { context: source.text } : {}) },
+          sessionId: source?.sessionId ?? value?.ownerSession, ...(source ? { context: source.text, turn: source.turn } : {}) },
         history: [{ action: 'record', at }], ...(parsed.replaces ? { replaces: parsed.replaces } : {}), createdAt: at, updatedAt: at }
       if (previous && memory.state === 'active') this.supersede(previous, memory.id)
       this.saveMemory(memory); return memory
@@ -290,8 +349,7 @@ export class ExperienceBook {
   /** Owner review changes provenance explicitly; a model cannot manufacture owner confirmation. */
   decideMemory(id: string, action: 'accept' | 'reject' | 'forget' | 'correct', correction?: { statement: string; reason?: string }): Memory {
     return this.store.atomic(() => {
-      const memory = this.memories().find(item => item.id === id)
-      if (!memory) throw new Error('记忆不存在')
+      const memory = this.memory(id)
       const at = stamp()
       if (action === 'forget') {
         memory.statement = ''; memory.evidenceIds = []; memory.claimId = ''; memory.ticketId = ''; memory.limits = ''; delete memory.replaces
@@ -307,8 +365,8 @@ export class ExperienceBook {
           this.supersede(memory, replacement.id); this.saveMemory(replacement); return replacement
         }
         if (action === 'accept' && memory.state === 'proposed' && memory.replaces) {
-          const previous = this.usableMemories().find(item => item.id === memory.replaces)
-          if (!previous) throw new Error('被修订的记忆已改变，请重新提出记忆')
+          const previous = this.memory(memory.replaces)
+          if (previous.state !== 'active' && previous.state !== 'accepted') throw new Error('被修订的记忆已改变，请重新提出记忆')
           this.supersede(previous, memory.id)
         }
         memory.state = action === 'accept' ? 'accepted' : 'rejected'

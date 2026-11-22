@@ -2,12 +2,13 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Store } from '../upstream/src/app/store.ts'
+import { TurnReferenceInput, type TurnReference } from './continuity.ts'
 
 const id = z.string().trim().min(1).max(300)
 const text = z.string().trim().min(1).max(8000)
 const date = z.iso.datetime({ offset: true })
 const revision = z.number().int().nonnegative()
-export const ProvenanceInput = z.object({ kind: z.enum(['user', 'system', 'self']), reference: id }).strict()
+export const ProvenanceInput = z.object({ kind: z.enum(['user', 'system', 'self']), reference: id, turn: TurnReferenceInput.optional() }).strict()
 export const RevisitInput = z.object({
   at: date.optional().describe('一次性再考虑时点；同时指定事件条件时，任一先发生都会提供机会'),
   condition: z.object({ description: text, eventKind: id.optional(), affairId: id.optional(),
@@ -54,10 +55,12 @@ export interface Opportunity {
   id: string; sessionId: string; state: OpportunityState; reason: string;
   eventIds: string[]; eventCount: number; revisitIds: string[]; revisitCount: number;
   createdAt: string; updatedAt: string; availableAt: string; expiresAt: string;
-  attempts: number; dispatchId?: string; dispatchedAt?: string; receiptAt?: string; settledAt?: string;
+  openGrant?: number; attempts: number; dispatchId?: string; dispatchedAt?: string; receiptAt?: string; settledAt?: string;
+  endedWithoutDecision?: { turn: number; endSeq: number };
   lastError?: string; lastFailureAt?: string; resolution?: string; claimId?: string; leaseUntil?: string
 }
-export interface Decision extends z.infer<typeof DecisionInput> { id: string; at: string }
+export interface Decision extends z.infer<typeof DecisionInput> { id: string; at: string; turn?: TurnReference }
+interface AutonomyRecords { opportunities: Opportunity; revisits: Revisit; decisions: Decision }
 export interface AutonomyControl { mode: 'active' | 'paused' | 'stopped'; reason: string; revision: number; updatedAt: string }
 export interface DeliberationPacket {
   opportunity: Opportunity; dispatchId: string; events: Observation[]; revisits: Revisit[]; intents: Intent[];
@@ -69,13 +72,19 @@ export interface AutonomyTransport {
 }
 export interface AutonomyOptions {
   now?: () => number; concurrency?: number; contextLimit?: number;
+  openActivity?: { sessionId: string; intervalMs: number; grant: () => number | undefined; willing: () => boolean; idle: () => boolean }
   opportunityLifetimeMs?: number; dispatchLeaseMs?: number; retryMs?: readonly [number, number]; minimumRevisitDelayMs?: number
 }
 const terminalIntent = (value: Intent) => value.state === 'done' || value.state === 'cancelled'
 const activeOpportunity = (value: Opportunity) => value.state === 'dispatching' || value.state === 'awaiting_decision'
+const openOpportunity = (value: Opportunity) => value.openGrant !== undefined && !value.eventCount && !value.revisitCount
 const stamp = (value: number) => new Date(value).toISOString()
 const parse = <T>(row: Record<string, unknown> | undefined): T | undefined => row && JSON.parse(String(row.value)) as T
 const excerpt = (value: string, limit: number) => value.length <= limit ? value : `${value.slice(0, limit)}…［截短，可读取原记录］`
+const recordTables = { opportunities: 'spirit_autonomy_opportunity', revisits: 'spirit_autonomy_revisit', decisions: 'spirit_autonomy_decision' } as const
+const currentIntentFilter = `i.state IN ('open','waiting') AND NOT EXISTS (
+  SELECT 1 FROM spirit_autonomy_affair AS a WHERE a.session_id=i.session_id AND a.id=json_extract(i.value,'$.affairId')
+  AND a.revision>json_extract(i.value,'$.affairRevision'))`
 
 /**
  * Own tables share Store's transaction boundary. There is no reflection interval and no automatic learning.
@@ -93,7 +102,7 @@ export class Autonomy {
   private closed = false
   private runtimeError?: string
 
-  constructor(readonly store: Store, private readonly transport: AutonomyTransport, options: AutonomyOptions = {}) {
+  constructor(readonly store: Store, private readonly transport: AutonomyTransport, private readonly options: AutonomyOptions = {}) {
     this.now = options.now ?? Date.now
     this.concurrency = options.concurrency ?? 1
     this.contextLimit = options.contextLimit ?? 16
@@ -125,6 +134,7 @@ export class Autonomy {
       CREATE UNIQUE INDEX IF NOT EXISTS spirit_autonomy_pending_session ON spirit_autonomy_opportunity(session_id) WHERE state='pending';
       CREATE UNIQUE INDEX IF NOT EXISTS spirit_autonomy_active_session ON spirit_autonomy_opportunity(session_id) WHERE state IN ('dispatching','awaiting_decision');
       CREATE UNIQUE INDEX IF NOT EXISTS spirit_autonomy_dispatch_id ON spirit_autonomy_opportunity(dispatch_id) WHERE dispatch_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS spirit_open_clock (session_id TEXT PRIMARY KEY, grant INTEGER NOT NULL, due INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_autonomy_dispatch (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_autonomy_decision (opportunity_id TEXT PRIMARY KEY, value TEXT NOT NULL);
     `)
@@ -135,6 +145,7 @@ export class Autonomy {
   getControl(): AutonomyControl {
     return parse<AutonomyControl>(this.store.db.prepare('SELECT value FROM spirit_autonomy_control WHERE id=1').get())!
   }
+  get error(): string | undefined { return this.runtimeError }
   getOpportunity(opportunityId: string): Opportunity {
     const value = parse<Opportunity>(this.store.db.prepare('SELECT value FROM spirit_autonomy_opportunity WHERE id=?').get(opportunityId))
     if (!value) throw new Error('思考机会不存在')
@@ -150,8 +161,112 @@ export class Autonomy {
       : this.store.db.prepare('SELECT value FROM spirit_autonomy_intent WHERE session_id=? ORDER BY rowid DESC').all(sessionId)
     return rows.map(row => parse<Intent>(row)!)
   }
+  intentPage({ sessionId, affairId, activeOnly = false, limit = 32, offset = 0 }: {
+    sessionId?: string; affairId?: string; activeOnly?: boolean; limit?: number; offset?: number
+  } = {}) {
+    const selection = `FROM spirit_autonomy_intent AS i WHERE (? IS NULL OR i.session_id=?) AND (? IS NULL OR json_extract(i.value,'$.affairId')=?)
+      ${activeOnly ? `AND ${currentIntentFilter}` : ''}`
+    const args = [sessionId ?? null, sessionId ?? null, affairId ?? null, affairId ?? null]
+    const total = Number(this.store.db.prepare(`SELECT COUNT(*) AS count ${selection}`).get(...args)?.count)
+    const items = this.store.db.prepare(`SELECT i.value ${selection} ORDER BY i.rowid DESC LIMIT ? OFFSET ?`)
+      .all(...args, Math.min(100, Math.max(1, Math.trunc(limit))), Math.max(0, Math.trunc(offset))).map(row => parse<Intent>(row)!)
+    return { items, total }
+  }
+  /** A bounded view of current work across sessions, including legacy intents. */
+  workingIntents(limit: number, { sessionId, affairId }: { sessionId?: string; affairId?: string } = {}) {
+    const current = `FROM spirit_autonomy_intent AS i WHERE ${currentIntentFilter}`
+    const total = Number(this.store.db.prepare(`SELECT COUNT(*) AS count ${current}`).get()?.count)
+    const rows = this.store.db.prepare(`SELECT i.value ${current} ORDER BY CASE
+      WHEN EXISTS (SELECT 1 FROM spirit_autonomy_revisit AS r JOIN spirit_autonomy_opportunity AS o ON o.id=r.opportunity_id
+        WHERE r.intent_id=i.id AND r.state='fired' AND o.session_id=? AND o.state IN ('dispatching','awaiting_decision')) THEN 0
+      WHEN json_extract(i.value,'$.affairId')=? THEN 1 WHEN i.session_id=? THEN 2 ELSE 3 END,
+      json_extract(i.value,'$.updatedAt') DESC, i.rowid DESC LIMIT ?`)
+      .all(sessionId ?? null, affairId ?? null, sessionId ?? null, Math.min(100, Math.max(1, Math.trunc(limit))))
+    const items = rows.map(row => {
+      const { id, revision, state, statement, source, updatedBy, sessionId, affairId } = parse<Intent>(row)!
+      return { id, revision, state, statement: excerpt(statement, 220), source, updatedBy, sessionId, affairId }
+    })
+    return { items, total }
+  }
+  isCurrentIntent(id: string, revision: number): boolean {
+    const value = parse<Intent>(this.store.db.prepare('SELECT value FROM spirit_autonomy_intent WHERE id=?').get(id))
+    return !!value && value.revision === revision && this.validIntent(value)
+  }
+  /** Verify the native source's exact dispatch version before using its opportunity. */
+  assertDispatchCurrent(sessionId: string, dispatchId: string, nativeAdmission = false): void {
+    const value = this.currentDispatch(sessionId, dispatchId)
+    if (nativeAdmission && value.state === 'settled') throw new Error('这个思考机会已经处理')
+    if (nativeAdmission && openOpportunity(value) && !this.currentOpenActivity(value)?.willing()) {
+      const reason = '当前活动选择已安静；不再开始开放机会'
+      this.store.atomic(() => {
+        const current = this.getOpportunity(value.id)
+        if (activeOpportunity(current) && current.dispatchId === dispatchId) {
+          current.state = 'cancelled'; current.resolution = reason; current.settledAt = stamp(this.now())
+          this.releaseDispatch(current)
+        }
+      })
+      throw new Error(reason)
+    }
+  }
+  /** Recheck transient eligibility immediately before admitting a new native message. */
+  assertReadyToDeliver(sessionId: string, dispatchId: string, signal: AbortSignal): void {
+    signal.throwIfAborted()
+    const value = this.currentDispatch(sessionId, dispatchId)
+    if (value.state !== 'dispatching' || this.running.get(value.claimId!)?.controller.signal !== signal || Date.parse(value.leaseUntil!) <= this.now()) {
+      throw new Error('这个发送已经处理、超时或由另一请求领取')
+    }
+    if (openOpportunity(value)) {
+      const open = this.currentOpenActivity(value)
+      if (!open?.willing() || !open.idle() || this.hasConcreteOpportunity(value)) throw new Error('现在不适合空闲开放机会')
+    }
+  }
+  private currentDispatch(sessionId: string, dispatchId: string): Opportunity {
+    this.assertActive()
+    const value = this.findDispatch(sessionId, dispatchId)
+    if (!value || (!activeOpportunity(value) && value.state !== 'settled') || value.endedWithoutDecision || Date.parse(value.expiresAt) <= this.now()) {
+      throw new Error('这个机会或发送版本已失效；先读取当前状态')
+    }
+    if (!this.hasCurrentContext(value)) throw new Error('这个机会的授权或所依据的观察、意向版本已过时')
+    return value
+  }
+  private findDispatch(sessionId: string, dispatchId: string): Opportunity | undefined {
+    return parse<Opportunity>(this.store.db.prepare('SELECT value FROM spirit_autonomy_opportunity WHERE session_id=? AND dispatch_id=?').get(sessionId, dispatchId))
+  }
+  /** Called only for a normally completed native turn that actually received this open dispatch. */
+  recordOpenTurnEnd(sessionId: string, dispatchId: string, turn: number, endSeq: number): void {
+    if (this.closed || this.getControl().mode !== 'active') return
+    this.store.atomic(() => {
+      const value = this.findDispatch(sessionId, dispatchId)
+      if (!value || (!activeOpportunity(value) && value.state !== 'retry') || !this.currentOpenActivity(value) || Date.parse(value.expiresAt) <= this.now()) return
+      const at = stamp(this.now())
+      value.state = 'settled'; value.updatedAt = at; value.settledAt = at; value.receiptAt ??= at
+      value.endedWithoutDecision = { turn, endSeq }
+      value.resolution = '这次开放回合正常结束，未登记判断。'
+      // An actual completed native turn proves receipt even while the post is flushing.
+      delete value.claimId; delete value.leaseUntil
+      this.saveOpportunity(value)
+      this.deferNextOpen(value)
+    })
+  }
+  awaiting(sessionId: string) {
+    const x = parse<Opportunity>(this.store.db.prepare("SELECT value FROM spirit_autonomy_opportunity WHERE session_id=? AND state IN ('dispatching','awaiting_decision')").get(sessionId))
+    return x && { opportunityId: x.id, dispatchId: x.dispatchId, reason: excerpt(x.reason, 320) }
+  }
   intentHistory(intentId: string): Intent[] {
     return this.store.db.prepare('SELECT value FROM spirit_autonomy_intent_history WHERE id=? ORDER BY revision').all(intentId).map(row => parse<Intent>(row)!)
+  }
+  intentHistoryPage(intentId: string, offset = 0, limit = 32) {
+    const total = Number(this.store.db.prepare('SELECT COUNT(*) AS count FROM spirit_autonomy_intent_history WHERE id=?').get(intentId)?.count)
+    const items = this.store.db.prepare('SELECT value FROM spirit_autonomy_intent_history WHERE id=? ORDER BY revision LIMIT ? OFFSET ?')
+      .all(intentId, Math.min(100, Math.max(1, Math.trunc(limit))), Math.max(0, Math.trunc(offset))).map(row => parse<Intent>(row)!)
+    return { items, total }
+  }
+  recordsPage<K extends keyof AutonomyRecords>(kind: K, offset = 0, limit = 32) {
+    const table = recordTables[kind]
+    const total = Number(this.store.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count)
+    const items = this.store.db.prepare(`SELECT value FROM ${table} ORDER BY rowid DESC LIMIT ? OFFSET ?`)
+      .all(Math.min(100, Math.max(1, Math.trunc(limit))), Math.max(0, Math.trunc(offset))).map(row => parse<AutonomyRecords[K]>(row)!)
+    return { items, total }
   }
   revisits(sessionId?: string): Revisit[] {
     const rows = sessionId === undefined ? this.store.db.prepare('SELECT value FROM spirit_autonomy_revisit ORDER BY rowid DESC').all()
@@ -240,38 +355,40 @@ export class Autonomy {
   }
 
   /** Only this explicit model acknowledgement settles a delivered opportunity. It does not imply an affair is done. */
-  decide(input: unknown): Decision {
+  decide(input: unknown, turn?: TurnReference): Decision {
     this.assertActive()
     const value = DecisionInput.parse(input)
+    const source = turn && TurnReferenceInput.parse(turn)
     return this.store.atomic(() => {
+      const opportunity = this.getOpportunity(value.opportunityId)
+      if (source && source.sessionId !== opportunity.sessionId) throw new Error('判断来源必须来自这个机会所交付的会话')
       const prior = parse<Decision>(this.store.db.prepare('SELECT value FROM spirit_autonomy_decision WHERE opportunity_id=?').get(value.opportunityId))
       if (prior) {
-        const { id: _id, at: _at, ...previous } = prior
+        const { id: _id, at: _at, turn: _turn, ...previous } = prior
         if (JSON.stringify(previous) !== JSON.stringify(value)) throw new Error('这个思考机会已经由另一项判断处理')
         return prior
       }
-      const opportunity = this.getOpportunity(value.opportunityId)
       if (!activeOpportunity(opportunity) || opportunity.dispatchId !== value.dispatchId || Date.parse(opportunity.expiresAt) <= this.now()) {
         throw new Error('这个机会或发送版本已失效；先读取当前状态')
       }
-      const current = this.eligibleContext(opportunity)
-      if (!current.events.length && !current.revisits.length) throw new Error('这个机会所依据的观察或意向版本已过时')
+      if (!this.hasCurrentContext(opportunity)) throw new Error('这个机会的授权或所依据的观察、意向版本已过时')
       if (value.intentId) {
         const intent = this.getIntent(value.intentId)
         if (intent.sessionId !== opportunity.sessionId || intent.revision !== value.intentRevision || terminalIntent(intent)) throw new Error('意向已改变或结束；先读取当前版本')
         if (intent.affairRevision !== undefined && this.affairRevision(intent.sessionId, intent.affairId!) > intent.affairRevision) throw new Error('意向所依据的事情版本已过时')
         if (value.intentState || value.revisit) {
           intent.revision++; intent.state = value.intentState ?? (value.decision === 'defer' ? 'waiting' : intent.state)
-          intent.reason = value.reason; intent.updatedAt = stamp(this.now()); intent.updatedBy = { kind: 'self', reference: value.dispatchId }
+          intent.reason = value.reason; intent.updatedAt = stamp(this.now()); intent.updatedBy = { kind: 'self', reference: value.dispatchId, ...(source ? { turn: source } : {}) }
           this.saveIntent(intent); this.invalidateRevisits(intent, '模型改变了意向')
           if (value.revisit) this.schedule(intent, value.revisit, intent.updatedBy)
         }
       }
-      const decision: Decision = { ...value, id: randomUUID(), at: stamp(this.now()) }
+      const decision: Decision = { ...value, id: randomUUID(), at: stamp(this.now()), ...(source ? { turn: source } : {}) }
       opportunity.state = 'settled'; opportunity.settledAt = decision.at; opportunity.updatedAt = decision.at
       opportunity.resolution = `${value.decision}：${value.reason}`
       delete opportunity.claimId; delete opportunity.leaseUntil
       this.saveOpportunity(opportunity)
+      if (openOpportunity(opportunity)) this.deferNextOpen(opportunity)
       this.store.db.prepare('INSERT INTO spirit_autonomy_decision VALUES (?,?)').run(opportunity.id, JSON.stringify(decision))
       return decision
     })
@@ -283,6 +400,7 @@ export class Autonomy {
     return this.store.atomic(() => {
       const control: AutonomyControl = { mode: nextMode, reason: explanation, revision: this.getControl().revision + 1, updatedAt: stamp(this.now()) }
       this.store.db.prepare('UPDATE spirit_autonomy_control SET value=? WHERE id=1').run(JSON.stringify(control))
+      if (mode !== 'active') this.store.db.prepare('DELETE FROM spirit_open_clock').run()
       if (mode === 'stopped') {
         for (const intent of this.intents()) if (!terminalIntent(intent)) {
           intent.state = 'cancelled'; intent.revision++; intent.reason = explanation; intent.updatedAt = control.updatedAt
@@ -291,7 +409,9 @@ export class Autonomy {
         }
       }
       for (const opportunity of this.unfinishedOpportunities()) {
-        if (mode === 'stopped') { opportunity.state = 'cancelled'; opportunity.resolution = explanation; opportunity.settledAt = control.updatedAt }
+        if (mode === 'stopped' || mode === 'paused' && openOpportunity(opportunity)) {
+          opportunity.state = 'cancelled'; opportunity.resolution = explanation; opportunity.settledAt = control.updatedAt
+        }
         else if (mode === 'paused' && opportunity.state === 'dispatching') { opportunity.state = 'retry'; opportunity.availableAt = control.updatedAt; opportunity.lastError = `已暂停：${explanation}` }
         else continue
         opportunity.updatedAt = control.updatedAt; delete opportunity.claimId; delete opportunity.leaseUntil
@@ -310,6 +430,7 @@ export class Autonomy {
       const value = this.getOpportunity(opportunityId)
       if (value.state !== 'awaiting_decision' && value.state !== 'retry') throw new Error('只能重试未获模型判断的发送')
       if (Date.parse(value.expiresAt) <= this.now()) throw new Error('机会已过期，需要新的实际观察或意向')
+      if (openOpportunity(value) && !this.currentOpenActivity(value)?.willing()) throw new Error('开放机会的授权或活动选择已经改变')
       if (value.state === 'awaiting_decision') {
         delete value.dispatchId; delete value.receiptAt; delete value.dispatchedAt
         this.store.db.prepare('UPDATE spirit_autonomy_opportunity SET request=NULL WHERE id=?').run(value.id)
@@ -325,20 +446,19 @@ export class Autonomy {
     try {
       this.store.atomic(() => {
         for (const opportunity of this.unfinishedOpportunities()) {
+          const open = this.currentOpenActivity(opportunity)
           if (Date.parse(opportunity.expiresAt) <= this.now()) {
             opportunity.state = 'expired'; opportunity.resolution = '机会过期不等于事情完成；等待新的事实或明确的再考虑'; opportunity.settledAt = stamp(this.now())
+          } else if (openOpportunity(opportunity) && (!open || !activeOpportunity(opportunity) && !open.willing())) {
+            opportunity.state = 'cancelled'; opportunity.resolution = '开放机会的授权或活动选择已经改变'; opportunity.settledAt = stamp(this.now())
           } else if (opportunity.state === 'dispatching' && Date.parse(opportunity.leaseUntil!) <= this.now()) {
             opportunity.state = 'retry'; opportunity.lastError = '发送租约中断或超时；以相同 dispatchId 重试，避免重复消息'
             opportunity.lastFailureAt = stamp(this.now()); opportunity.availableAt = stamp(this.now() + this.backoff(opportunity.attempts))
           } else if (activeOpportunity(opportunity)) {
-            const context = this.eligibleContext(opportunity)
-            if (context.events.length || context.revisits.length) continue
+            if (this.hasCurrentContext(opportunity)) continue
             opportunity.state = 'stale'; opportunity.resolution = '等待期间，原观察或意向版本已经改变'; opportunity.settledAt = stamp(this.now())
           } else continue
-          const claimId = opportunity.claimId
-          opportunity.updatedAt = stamp(this.now()); delete opportunity.claimId; delete opportunity.leaseUntil
-          this.saveOpportunity(opportunity)
-          if (claimId) this.store.afterCommit(() => this.running.get(claimId)?.controller.abort(new Error(opportunity.resolution ?? opportunity.lastError)))
+          this.releaseDispatch(opportunity)
         }
         for (const revisit of this.waitingRevisits()) {
           if (!this.validRevisit(revisit)) continue
@@ -346,6 +466,7 @@ export class Autonomy {
         }
       })
       if (this.getControl().mode !== 'active') return
+      this.considerOpenTurn()
       for (let count = 0; count < this.concurrency; count++) {
         const claimed = this.claim()
         if (!claimed) break
@@ -379,6 +500,9 @@ export class Autonomy {
   private affairRevision(sessionId: string, affairId: string): number {
     return Number(this.store.db.prepare('SELECT revision FROM spirit_autonomy_affair WHERE session_id=? AND id=?').get(sessionId, affairId)?.revision ?? -1)
   }
+  private validIntent(value: Intent): boolean {
+    return !terminalIntent(value) && (value.affairRevision === undefined || this.affairRevision(value.sessionId, value.affairId!) <= value.affairRevision)
+  }
   private saveIntent(value: Intent): void {
     this.store.db.prepare('INSERT INTO spirit_autonomy_intent VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,value=excluded.value')
       .run(value.id, value.sessionId, value.state, JSON.stringify(value))
@@ -388,6 +512,12 @@ export class Autonomy {
     this.store.db.prepare(`INSERT INTO spirit_autonomy_opportunity (id,session_id,state,due,dispatch_id,value) VALUES (?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET state=excluded.state,due=excluded.due,dispatch_id=excluded.dispatch_id,value=excluded.value`)
       .run(value.id, value.sessionId, value.state, Date.parse(value.availableAt), value.dispatchId ?? null, JSON.stringify(value))
+  }
+  private releaseDispatch(value: Opportunity): void {
+    const claimId = value.claimId
+    value.updatedAt = stamp(this.now()); delete value.claimId; delete value.leaseUntil
+    this.saveOpportunity(value)
+    if (claimId) this.store.afterCommit(() => this.running.get(claimId)?.controller.abort(new Error(value.resolution ?? value.lastError)))
   }
   private saveRevisit(value: Revisit): void {
     this.store.db.prepare(`INSERT INTO spirit_autonomy_revisit VALUES (?,?,?,?,?,?,?)
@@ -420,8 +550,7 @@ export class Autonomy {
   private validRevisit(revisit: Revisit): boolean {
     const intent = this.getIntent(revisit.intentId)
     const expired = !!revisit.expiresAt && Date.parse(revisit.expiresAt) <= this.now()
-    if (!expired && !terminalIntent(intent) && intent.revision === revisit.intentRevision
-      && (intent.affairRevision === undefined || this.affairRevision(intent.sessionId, intent.affairId!) <= intent.affairRevision)) return true
+    if (!expired && intent.revision === revisit.intentRevision && this.validIntent(intent)) return true
     revisit.state = expired ? 'expired' : 'stale'; revisit.settledAt = stamp(this.now())
     revisit.resolution = expired ? '再考虑的有效期已过' : '原意向或事情版本已经改变'
     this.saveRevisit(revisit); return false
@@ -434,15 +563,64 @@ export class Autonomy {
     revisit.resolution = matchedEventId ? '观察到了候选事件；条件是否实际成立仍由模型判断' : '到达模型选择的时点；这只提供思考机会'
     this.saveRevisit(revisit)
   }
-  private offer(sessionId: string, input: { eventId?: string; revisitId?: string; reason: string; expiresAt: string }): Opportunity {
+  private offer(sessionId: string, input: { eventId?: string; revisitId?: string; openGrant?: number; reason: string; expiresAt: string }): Opportunity {
     const at = stamp(this.now())
     const value = parse<Opportunity>(this.store.db.prepare("SELECT value FROM spirit_autonomy_opportunity WHERE session_id=? AND state='pending'").get(sessionId))
       ?? { id: randomUUID(), sessionId, state: 'pending', reason: input.reason, eventIds: [], eventCount: 0, revisitIds: [], revisitCount: 0,
-        createdAt: at, updatedAt: at, availableAt: at, expiresAt: input.expiresAt, attempts: 0 } satisfies Opportunity
+        createdAt: at, updatedAt: at, availableAt: at, expiresAt: input.expiresAt, attempts: 0, openGrant: input.openGrant } satisfies Opportunity
+    if (openOpportunity(value) && (input.eventId || input.revisitId)) {
+      delete value.openGrant
+      value.reason = input.reason; value.expiresAt = input.expiresAt
+    }
     if (input.eventId) { value.eventCount++; value.eventIds = [...value.eventIds, input.eventId].slice(-this.contextLimit) }
     if (input.revisitId) { value.revisitCount++; value.revisitIds = [...value.revisitIds, input.revisitId].slice(-this.contextLimit) }
     value.updatedAt = at; value.expiresAt = stamp(Math.max(Date.parse(value.expiresAt), Date.parse(input.expiresAt)))
     this.saveOpportunity(value); return value
+  }
+  /** No invented observation or intention. A grant gives computation time, never specifies its purpose.
+   * One durable deadline per main session, no backlog after an outage, no second unacknowledged turn. */
+  private considerOpenTurn(): void {
+    const open = this.options.openActivity
+    if (!open) return
+    const grant = open.grant()
+    this.store.atomic(() => {
+      if (open.intervalMs <= 0 || grant === undefined || !open.willing()) {
+        this.store.db.prepare('DELETE FROM spirit_open_clock WHERE session_id=?').run(open.sessionId)
+        return
+      }
+      const now = this.now()
+      const clock = this.store.db.prepare('SELECT grant,due FROM spirit_open_clock WHERE session_id=?').get(open.sessionId)
+      if (clock?.grant !== grant) {
+        this.store.db.prepare('INSERT OR REPLACE INTO spirit_open_clock VALUES(?,?,?)').run(open.sessionId, grant, now + open.intervalMs)
+        return
+      }
+      if (Number(clock.due) > now || !open.idle() || this.activeCount() >= this.concurrency) return
+      if (this.store.db.prepare("SELECT 1 FROM spirit_autonomy_opportunity WHERE session_id=? AND state IN ('pending','retry','dispatching','awaiting_decision') LIMIT 1").get(open.sessionId)) return
+      const value = this.offer(open.sessionId, { openGrant: grant, reason: '空闲时的一次开放机会，可以直接不行动，也可以自行发起尚无题目的活动。', expiresAt: stamp(now + this.lifetime) })
+      this.deferNextOpen(value)
+    })
+  }
+  private currentOpenActivity(opportunity: Opportunity) {
+    const open = this.options.openActivity
+    if (openOpportunity(opportunity) && open?.sessionId === opportunity.sessionId && open.intervalMs > 0 && open.grant() === opportunity.openGrant) return open
+  }
+  private deferNextOpen(opportunity: Opportunity): void {
+    const open = this.currentOpenActivity(opportunity)
+    if (open) this.store.db.prepare('UPDATE spirit_open_clock SET due=MAX(due,?) WHERE session_id=? AND grant=?')
+      .run(this.now() + open.intervalMs, opportunity.sessionId, opportunity.openGrant!)
+  }
+  private hasConcreteOpportunity(opportunity: Opportunity): boolean {
+    return !!this.store.db.prepare(`SELECT 1 FROM spirit_autonomy_opportunity WHERE session_id=? AND id<>?
+      AND state IN ('pending','retry','dispatching','awaiting_decision') AND (json_extract(value,'$.openGrant') IS NULL
+      OR json_extract(value,'$.eventCount')>0 OR json_extract(value,'$.revisitCount')>0) LIMIT 1`).get(opportunity.sessionId, opportunity.id)
+  }
+  private hasCurrentContext(opportunity: Opportunity): boolean {
+    if (openOpportunity(opportunity)) return !!this.currentOpenActivity(opportunity)
+    const { events, revisits } = this.eligibleContext(opportunity)
+    return !!(events.length || revisits.length)
+  }
+  private activeCount(): number {
+    return Number(this.store.db.prepare("SELECT COUNT(*) AS count FROM spirit_autonomy_opportunity WHERE state IN ('dispatching','awaiting_decision')").get()?.count)
   }
   private eligibleContext(opportunity: Opportunity) {
     const events = this.store.db.prepare('SELECT value FROM spirit_autonomy_event WHERE opportunity_id=? ORDER BY rowid DESC').all(opportunity.id)
@@ -455,14 +633,17 @@ export class Autonomy {
   private claim(): { opportunity: Opportunity; packet: DeliberationPacket } | undefined {
     return this.store.atomic(() => {
       if (this.getControl().mode !== 'active') return
-      const active = Number(this.store.db.prepare("SELECT COUNT(*) AS count FROM spirit_autonomy_opportunity WHERE state IN ('dispatching','awaiting_decision')").get()?.count)
-      if (active >= this.concurrency) return
+      if (this.activeCount() >= this.concurrency) return
       const candidates = this.store.db.prepare(`SELECT value,request FROM spirit_autonomy_opportunity AS candidate
         WHERE state IN ('pending','retry') AND due<=? AND NOT EXISTS (SELECT 1 FROM spirit_autonomy_opportunity AS active
-          WHERE active.session_id=candidate.session_id AND active.state IN ('dispatching','awaiting_decision')) ORDER BY rowid LIMIT 32`).all(this.now())
+          WHERE active.session_id=candidate.session_id AND active.state IN ('dispatching','awaiting_decision'))
+        ORDER BY (json_extract(value,'$.openGrant') IS NOT NULL AND json_extract(value,'$.eventCount')=0 AND json_extract(value,'$.revisitCount')=0), rowid LIMIT 32`).all(this.now())
       for (const row of candidates) {
         const opportunity = parse<Opportunity>(row)!, context = this.eligibleContext(opportunity)
-        if (!context.events.length && !context.revisits.length) {
+        if (openOpportunity(opportunity)) {
+          const open = this.currentOpenActivity(opportunity)
+          if (!open?.willing() || !open.idle() || this.hasConcreteOpportunity(opportunity)) continue
+        } else if (!context.events.length && !context.revisits.length) {
           opportunity.state = 'stale'; opportunity.resolution = '原观察或意向已过时；没有据此再次唤醒的理由'
           opportunity.settledAt = stamp(this.now()); opportunity.updatedAt = opportunity.settledAt; this.saveOpportunity(opportunity); continue
         }
@@ -472,7 +653,7 @@ export class Autonomy {
         this.saveOpportunity(opportunity)
         this.store.db.prepare('INSERT OR IGNORE INTO spirit_autonomy_dispatch VALUES (?,?,?)')
           .run(opportunity.dispatchId, opportunity.id, opportunity.dispatchedAt)
-        const intents = this.intents(opportunity.sessionId).filter(value => !terminalIntent(value))
+        const intents = this.intents(opportunity.sessionId).filter(value => this.validIntent(value))
         const related = new Set(context.revisits.map(value => value.intentId))
         intents.sort((a, b) => Number(related.has(b.id)) - Number(related.has(a.id)))
         const packet: DeliberationPacket = row.request ? JSON.parse(String(row.request)) as DeliberationPacket : {
@@ -482,7 +663,9 @@ export class Autonomy {
             ...(value.condition ? { condition: { ...value.condition, description: excerpt(value.condition.description, 600) } } : {}) })),
           intents: intents.slice(0, this.contextLimit).map(value => ({ ...value, statement: excerpt(value.statement, 1000), reason: excerpt(value.reason, 600) })),
           eventCount: context.events.length, revisitCount: context.revisits.length, intentCount: intents.length,
-          instruction: '这是一次思考机会，不是新的用户命令，也不规定反思或自我更新。依据当前会话、实际未决事情和经验判断：行动、暂缓、询问、学习或不做。来源为 self 的意向应明确归于精神自身。若条件只是候选事件，请实际判断条件；先检查已有结果，避免重复行动。发送回执不代表思考完成；请用 spirit_decide 以 opportunityId 和 dispatchId 记录判断与理由。机会已处理与事情已完成不同：意向继续开放、等待或完成需明确记录；只有确有理由时选择一次性的 revisit。上下文可能截短，可读取其余记录。',
+          instruction: openOpportunity(opportunity)
+            ? '这是一次没有指定事项的开放机会，可以自行选择活动，也可以直接结束这一轮。不必发消息或给出理由；有需要时可以用 spirit_decide 记录判断。没有新的观察就不要虚构。来源为 self 的意向归于精神自身；要改变实际意向或安排再考虑时应明确记录。上下文可能截短，可读取其余记录。'
+            : '这是一次思考机会，不是新的用户命令，也不规定反思或自我更新。依据当前会话、实际未决事情和经验判断：行动、暂缓、询问、学习或不做。来源为 self 的意向应明确归于精神自身。若条件只是候选事件，请实际判断条件；先检查已有结果，避免重复行动。发送回执不代表思考完成；请用 spirit_decide 以 opportunityId 和 dispatchId 记录判断与理由。机会已处理与事情已完成不同：意向继续开放、等待或完成需明确记录；只有确有理由时选择一次性的 revisit。上下文可能截短，可读取其余记录。',
         }
         if (!row.request) this.store.db.prepare('UPDATE spirit_autonomy_opportunity SET request=? WHERE id=?').run(JSON.stringify(packet), opportunity.id)
         return { opportunity, packet }
@@ -508,7 +691,13 @@ export class Autonomy {
       signal.addEventListener('abort', abort, { once: true })
       if (signal.aborted) abort()
     })
-    try { await Promise.race([Promise.resolve().then(() => { signal.throwIfAborted(); return this.transport.deliberate(packet, signal) }), cancelled]) }
+    try {
+      await Promise.race([Promise.resolve().then(() => {
+        signal.throwIfAborted()
+        this.assertReadyToDeliver(packet.opportunity.sessionId, packet.dispatchId, signal)
+        return this.transport.deliberate(packet, signal)
+      }), cancelled])
+    }
     finally { signal.removeEventListener('abort', abort!) }
   }
   private finishDispatch(opportunityId: string, claimId: string, failure?: { error: unknown }): void {
@@ -520,7 +709,10 @@ export class Autonomy {
       if (failure) {
         value.state = 'retry'; value.lastError = String(failure.error).slice(0, 2000); value.lastFailureAt = value.updatedAt
         value.availableAt = stamp(this.now() + (this.closed ? 0 : this.backoff(value.attempts)))
-      } else { value.state = 'awaiting_decision'; value.receiptAt = value.updatedAt }
+      } else {
+        value.state = 'awaiting_decision'; value.receiptAt = value.updatedAt
+        if (openOpportunity(value)) this.deferNextOpen(value)
+      }
       this.saveOpportunity(value)
     })
   }

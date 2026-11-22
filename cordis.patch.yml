@@ -1,4 +1,10 @@
 # An initial, editable capability composition. No persona or philosophical stage machine.
+# In the profile using Spirit, ordinary new conversations participate by default.
+# Harness still gives an explicitly selected preset (including selectedDefault) priority.
+- id: agent-preset-registry
+  config:
+    default: dsh-spirit
+
 - insert:
     - id: dsh-spirit
       name: dsh-jingshen
@@ -9,7 +15,7 @@
         name: 精神
         description: 从已有条件与具体经验出发，持续处理事务、形成判断并改造自身。
         order: 30
-        plugins: &spirit-capabilities
+        plugins:
           - id: tool-executor-native
             name: '@deepseek-ai/dsh-tool-executor-native'
           - id: agent-instructions
@@ -61,6 +67,21 @@
             name: '@deepseek-ai/dsh-tool-present'
           - id: tool-office
             name: '@deepseek-ai/dsh-tool-office'
+          # The host supplies the providers and the Team board. Native tools
+          # follow provider availability and the root Session's Team switch.
+          - id: tool-subagent-control
+            name: '@deepseek-ai/dsh-tool-subagent-control'
+          - id: tool-subagent
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: spawn
+              modelSelection: true
+              modelDiscovery: true
+          - id: tool-subagent-fork
+            name: '@deepseek-ai/dsh-tool-subagent'
+            config:
+              provider: fork
+              toolName: subagent_fork
           - id: compaction
             name: cordis:group
             group: true
@@ -78,12 +99,3 @@
                   thresholdChars: 8192
                   headChars: 4096
                   tailChars: 1024
-    # Existing started sessions retain their preset id in Harness. Keep their history usable.
-    - id: dsh-spirit-legacy-preset
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: dsh-personal-spirit
-        name: 精神（旧会话兼容）
-        description: 为上一版本的已有会话提供当前能力。
-        order: 31
-        plugins: *spirit-capabilities

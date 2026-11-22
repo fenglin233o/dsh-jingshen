@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Controlled integration test against the real Harness 0.2.2-rc.3 host.
+ * Controlled integration test against the real Harness 0.2.2-rc.5 host.
  * This file is both a CLI driver and a test-only Cordis companion plugin.
  * Its local deterministic adapter emits protocol fixtures, not model reasoning.
  * No provider account, paid request, or external message is used.
  *
- * node tests/runtime-smoke.mjs --runtime /path/to/rc3-install --scratch /tmp/spirit-runtime-test
+ * node tests/runtime-smoke.mjs --runtime /path/to/rc5-install --scratch /tmp/spirit-runtime-test
+ * Use --suite open-activity to exercise the real idle timer in a separate profile.
  * Build Spirit first. The driver snapshots the package and uses an isolated DSH_HOME.
  */
 import assert from 'node:assert/strict'
@@ -35,8 +36,11 @@ const flatten = function* (value) {
   for (const child of Object.values(value)) if (child && typeof child === 'object') yield* flatten(child)
 }
 function fixtureInput(message) {
-  const content = textOf(message), marker = content.indexOf(MARKER)
-  if (marker >= 0) return { script: JSON.parse(content.slice(marker + MARKER.length)) }
+  for (const part of message.content ?? []) {
+    if (part.type !== 'text') continue
+    if (part.text.startsWith(MARKER)) return { script: JSON.parse(part.text.slice(MARKER.length)) }
+  }
+  const content = textOf(message)
   const start = content.indexOf('{')
   if (start < 0) return
   try {
@@ -47,7 +51,8 @@ function fixtureInput(message) {
 }
 
 export const name = 'spirit-runtime-fixture'
-export const inject = ['llm', 'agents', 'agentPresets', 'sessionController', 'sessionPersistence', 'workspaceRegistry', 'approval', 'webServer']
+export const inject = ['llm', 'agents', 'agentPresets', 'agentTeams', 'subagents', 'jobs', 'permissionPresets', 'sandboxPolicy', 'sessionController',
+  'sessionPersistence', 'workspaceRegistry', 'approval', 'webServer']
 
 /** Test-only surface: authenticated loopback input and observation, never tools.execute(). */
 export async function apply(ctx) {
@@ -55,8 +60,12 @@ export async function apply(ctx) {
   if (!token || !process.env.SPIRIT_TEST_RUNTIME) throw new Error('The runtime fixture is only loadable by its isolated test driver')
   if (ctx.webServer.host !== '127.0.0.1') throw new Error('The runtime fixture requires an IPv4 loopback listener')
   const requireRuntime = createRequire(join(process.env.SPIRIT_TEST_RUNTIME, 'package.json'))
-  const { LlmAdapter, createUserMessage } = await import(pathToFileURL(requireRuntime.resolve('@deepseek-ai/dsh-llm')).href)
-  const trace = [], pending = new Map()
+  const { LlmAdapter, LlmError, createUserMessage } = await import(pathToFileURL(requireRuntime.resolve('@deepseek-ai/dsh-llm')).href)
+  const trace = [], lifecycle = [], pending = new Map(), heldStreams = new Map()
+  for (const event of ['subagent/start', 'subagent/end']) {
+    ctx.on(event, info => { lifecycle.push({ event, ...info }) })
+  }
+  const overflowOnce = new Set()
   let autonomyBehavior = 'ack'
   // Optional, explicitly labeled fault injection: persist normally, then delay exactly one flush completion.
   // This changes timing only; the real service operation, result, tool execution, and approvals remain intact.
@@ -100,8 +109,16 @@ export async function apply(ctx) {
     }
     async *stream(options) {
       options.signal?.throwIfAborted()
-      const latest = options.messages.findLast(message => message.role === 'user' && ['user', 'spirit'].includes(message.source?.kind))
-      const input = latest && fixtureInput(latest)
+      const latest = options.messages.findLast(message => message.role === 'user'
+        && ['user', 'spirit', 'agent-message', 'subagent-settled'].includes(message.source?.kind))
+      if (options.purpose !== 'compaction' && overflowOnce.delete(options.sessionId)) {
+        throw new LlmError('Controlled provider reports its context window exhausted', 'CONTEXT_WINDOW_EXCEEDED')
+      }
+      const input = options.purpose !== 'compaction' && latest && fixtureInput(latest)
+      const contextMessage = options.messages.findLast(message => message.source?.kind === 'runtime-context'
+        && textOf(message).includes('精神当前活动'))
+      const contextLine = contextMessage && textOf(contextMessage).split('\n').find(line => line.startsWith('{"mainId":'))
+      const working = contextLine && JSON.parse(contextLine)
       const seen = new Set(options.messages.flatMap(message => message.content ?? []).filter(part => part.type === 'tool-call').map(part => part.id))
       let next
       if (input?.packet && autonomyBehavior === 'ack') {
@@ -112,20 +129,37 @@ export async function apply(ctx) {
         const index = (input.script.calls ?? []).findIndex((_call, index) => !seen.has(callId(input.script.id, index)))
         if (index >= 0) next = { ...input.script.calls[index], id: callId(input.script.id, index) }
       }
+      const heldId = input?.script?.hold ? input.script.id
+        : input?.packet && autonomyBehavior === 'hold' ? input.packet.dispatchId : undefined
       trace.push({ at: new Date().toISOString(), sessionId: options.sessionId, provider: options.provider, model: options.model,
         reasoningEffort: options.reasoningEffort, purpose: options.purpose, tools: (options.tools ?? []).map(tool => tool.name),
+        ...(working ? { working } : {}), ...(input?.script ? { scriptId: input.script.id } : {}),
         ...(next ? { call: next } : {}), ...(input?.packet ? { opportunityId: input.packet.opportunity.id, dispatchId: input.packet.dispatchId } : {}),
-        ...(input?.script?.hold ? { hold: true } : {}) })
+        ...(input?.script?.probe ? { sawProbe: options.messages.some(message => message !== latest && textOf(message).includes(input.script.probe)) } : {}),
+        ...(heldId ? { hold: true } : {}) })
       if (trace.length > 2000) trace.shift()
-      if (input?.script?.hold && !next) {
-        await new Promise((_resolve, reject) => {
-          const abort = () => reject(options.signal?.reason ?? new Error('Fixture held stream cancelled'))
+      if (heldId && !next) {
+        await new Promise((resolveHold, reject) => {
+          const finish = () => {
+            heldStreams.delete(heldId)
+            options.signal?.removeEventListener('abort', abort)
+          }
+          const abort = () => {
+            finish()
+            reject(options.signal?.reason ?? new Error('Fixture held stream cancelled'))
+          }
+          heldStreams.set(heldId, () => { finish(); resolveHold() })
           options.signal?.addEventListener('abort', abort, { once: true })
           if (options.signal?.aborted) abort()
         })
       }
+      if (input?.packet && autonomyBehavior === 'omit') {
+        yield { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
       const block = next ? { type: 'tool-call', id: next.id, name: next.name, arguments: JSON.stringify(next.args) }
-        : { type: 'text', text: 'Controlled runtime fixture settled. No live-model reasoning was exercised.' }
+        : { type: 'text', text: input?.script?.reply ?? 'Controlled runtime fixture settled. No live-model reasoning was exercised.' }
       yield { type: 'block-start', index: 0, blockType: block.type }
       yield next ? { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
         : { type: 'text-delta', index: 0, text: block.text }
@@ -149,8 +183,7 @@ export async function apply(ctx) {
     if ('error' in value) throw new Error(JSON.stringify(value.error))
     return value.agent
   }
-  const inspect = async sessionId => {
-    const agent = await agentFor(sessionId)
+  const readEvents = async sessionId => {
     await ctx.sessionPersistence.flush()
     const handle = await ctx.sessionPersistence.open(sessionId, 'read'), events = []
     try {
@@ -160,7 +193,13 @@ export async function apply(ctx) {
         events.push(...page.events); offset += page.events.length
       }
     } finally { await handle[Symbol.asyncDispose]() }
+    return events
+  }
+  const inspect = async sessionId => {
+    const agent = await agentFor(sessionId)
+    const events = await readEvents(sessionId)
     return { sessionId, header: agent.session.header, preset: ctx.agentPresets.presetForSession(agent.session), status: agent.status, model: agent.model.current(), events,
+      permissionPreset: ctx.permissionPresets.current(agent.session), teamEnabled: ctx.agentTeams.isEnabled(agent),
       inbox: { nextTurn: agent.inbox.nextTurn.length, nextStep: agent.inbox.nextStep.length } }
   }
   const readBody = async req => {
@@ -175,19 +214,45 @@ export async function apply(ctx) {
     try {
       const url = new URL(req.url, origin), route = url.pathname.slice('/__spirit-fixture'.length)
       if (req.method === 'GET' && route === '/ready') return json(res, 200, { ready: true, provider: PROVIDER, providers: ctx.llm.listProviders() })
-      if (req.method === 'GET' && route === '/trace') return json(res, 200, { trace, pending: [...pending.values()].map(value => value.item) })
+      if (req.method === 'GET' && route === '/trace') return json(res, 200, { trace, lifecycle, pending: [...pending.values()].map(value => value.item) })
       if (req.method === 'GET' && route === '/flush-barrier') return json(res, 200, flushBarrier
         ? { id: flushBarrier.id, entered: flushBarrier.entered, enteredAt: flushBarrier.enteredAt, released: false } : lastBarrier ?? { armed: false })
       if (req.method === 'GET' && route === '/inspect') return json(res, 200, await inspect(url.searchParams.get('sessionId')))
+      if (req.method === 'GET' && route === '/logs') return json(res, 200, await readEvents(url.searchParams.get('sessionId')))
+      if (req.method === 'GET' && route === '/jobs') {
+        const owner = url.searchParams.get('sessionId')
+        return json(res, 200, ctx.jobs.list(owner).filter(job => job.owner === owner))
+      }
+      if (req.method === 'GET' && route === '/member') {
+        const agent = ctx.agents.get(url.searchParams.get('sessionId'))
+        return json(res, 200, agent ? { resident: true, header: agent.session.header, status: agent.status,
+          names: ctx.subagents.namesOf(agent), root: ctx.subagents.rootOf(agent).id, teamEnabled: ctx.agentTeams.isEnabled(agent),
+          sandbox: ctx.sandboxPolicy.overrideOf(agent.session), approval: ctx.approval.overrideOf(agent.session), nextStep: agent.inbox.nextStep.length,
+          nextTurn: agent.inbox.nextTurn.length } : { resident: false })
+      }
       if (req.method === 'GET' && route === '/roster') {
         const agent = await agentFor(url.searchParams.get('sessionId'))
         const toolSet = await agent.ctx.tools.resolve({ agent, modelSelection: agent.model.current(), signal: AbortSignal.timeout(10_000) })
         try { return json(res, 200, { tools: [...toolSet.view(agent).keys()] }) } finally { toolSet.dispose() }
       }
       if (req.method === 'GET' && route === '/sessions') return json(res, 200, await ctx.sessionController.list({}, new AbortController().signal))
+      if (req.method === 'GET' && route === '/presets') return json(res, 200, await ctx.agentPresets.remoteExportList())
       if (req.method === 'GET' && route === '/workspaces') return json(res, 200, ctx.workspaceRegistry.list()
         .map(value => ({ id: value.id, path: value.path, sessionIds: [...value.sessionIds] })))
+      if (req.method === 'POST' && route === '/overflow-once') {
+        const { sessionId } = await readBody(req); overflowOnce.add(sessionId); return json(res, 200, { armed: true })
+      }
       if (req.method === 'POST' && route === '/native-create') return json(res, 200, await ctx.sessionController.create(await readBody(req)))
+      if (req.method === 'POST' && route === '/native-team') {
+        const { sessionId, enabled } = await readBody(req), agent = await agentFor(sessionId)
+        assert.equal(typeof enabled, 'boolean')
+        await ctx.agentTeams.setEnabled(agent, enabled)
+        return json(res, 200, { enabled: ctx.agentTeams.isEnabled(agent) })
+      }
+      if (req.method === 'POST' && route === '/release-stream') {
+        const { scriptId } = await readBody(req), release = heldStreams.get(scriptId)
+        return json(res, 200, { released: Boolean(release && (release(), true)) })
+      }
       if (req.method === 'POST' && route === '/turn') {
         const body = await readBody(req), agent = await agentFor(body.sessionId)
         const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: `${MARKER}${JSON.stringify(body.script)}` }] })
@@ -202,7 +267,7 @@ export async function apply(ctx) {
       }
       if (req.method === 'POST' && route === '/behavior') {
         const body = await readBody(req)
-        if (!['ack', 'silent'].includes(body.autonomy)) throw new Error('Unknown fixture autonomy behavior')
+        if (!['ack', 'silent', 'hold', 'omit'].includes(body.autonomy)) throw new Error('Unknown fixture autonomy behavior')
         autonomyBehavior = body.autonomy; return json(res, 200, { autonomy: autonomyBehavior })
       }
       if (req.method === 'POST' && route === '/flush-barrier') {
@@ -260,12 +325,14 @@ function findSessionId(value) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const runtime = resolve(args.runtime ?? '/workspace/scratch/spirit-runtime-rc3')
+  const runtime = resolve(args.runtime ?? '/workspace/scratch/harness-rc5')
   const scratch = resolve(args.scratch ?? `/tmp/spirit-runtime-validation-${Date.now()}`)
   const packageSource = resolve(args.package ?? PACKAGE)
+  const suite = args.suite ?? 'default'
+  assert(['default', 'open-activity'].includes(suite), `Unknown runtime suite ${suite}`)
   const reportPath = join(scratch, 'report.json'), addressFile = join(scratch, 'runtime-address.json')
   const runtimeVersion = JSON.parse(readFileSync(join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'))).version
-  assert.equal(runtimeVersion, '0.2.2-rc.3', 'This controlled integration test targets an exact Harness generation')
+  assert.equal(runtimeVersion, '0.2.2-rc.5', 'This controlled integration test targets an exact Harness generation')
   assert(existsSync(join(packageSource, 'lib/index.js')), 'Build Spirit before running runtime-smoke.mjs')
   const packageManifest = JSON.parse(readFileSync(join(packageSource, 'package.json')))
   const packageName = packageManifest.name
@@ -290,6 +357,7 @@ async function main() {
   writeFileSync(join(profile, 'cordis.yml'), '[]\n')
   writeFileSync(join(profile, 'cordis.patch.yml'), [
     '- id: dsh-spirit', '  config:', `    stateDir: ${JSON.stringify(state)}`, '    concurrency: 2',
+    `    openIntervalMinutes: ${suite === 'open-activity' ? 0.05 : 0}`,
     '- id: agent-default-model', '  config:', `    provider: ${PROVIDER}`, '    model: fixture-one', '    reasoningEffort: low',
     ...['llm-deepseek', 'llm-deepseek-account', 'llm-pi-ai', 'session-title-llm'].flatMap(id => [`- id: ${id}`, '  disabled: true']),
     '- insert:', '    - id: spirit-runtime-fixture', `      name: ${JSON.stringify(FILE)}`, '',
@@ -308,6 +376,13 @@ async function main() {
     return value
   }
   const inspect = sessionId => request(`/inspect?sessionId=${encodeURIComponent(sessionId)}`)
+  const logs = sessionId => request(`/logs?sessionId=${encodeURIComponent(sessionId)}`)
+  const jobs = sessionId => request(`/jobs?sessionId=${encodeURIComponent(sessionId)}`)
+  const member = sessionId => request(`/member?sessionId=${encodeURIComponent(sessionId)}`)
+  const turn = (sessionId, script, wait = true) => request('/turn', { sessionId, script, wait })
+  const scriptText = script => `${MARKER}${JSON.stringify(script)}`
+  const toolResult = (events, script, index) =>
+    events.findLast(event => event.type === 'tool/result' && event.data.message.toolCallId === callId(script.id, index))
   const run = async (sessionId, name, toolArgs, options = {}) => {
     const id = randomUUID(), result = await request('/turn', { sessionId, script: { id, calls: [{ name, args: toolArgs }] }, wait: options.wait !== false })
     if (options.wait === false) return { id, callId: callId(id, 0), ...result }
@@ -318,6 +393,16 @@ async function main() {
   const sqlValues = table => {
     const db = new DatabaseSync(join(state, 'personal.sqlite'), { readOnly: true })
     try { return db.prepare(`SELECT value FROM ${table} ORDER BY rowid`).all().map(row => JSON.parse(row.value)) } finally { db.close() }
+  }
+  const complete = async (mainId, childId) => {
+    const finalTrace = await request('/trace')
+    writeFileSync(join(scratch, 'native-evidence.json'), JSON.stringify({ artifacts: nativeArtifacts, ...finalTrace,
+      main: await inspect(mainId), ...(childId ? { child: await inspect(childId) } : {}),
+      opportunities: sqlValues('spirit_autonomy_opportunity'), decisions: sqlValues('spirit_autonomy_decision') }, null, 2))
+    writeFileSync(reportPath, JSON.stringify({ passed: true, kind: 'controlled-runtime-integration', suite,
+      disclaimer: 'Deterministic local protocol fixtures; no live-model reasoning or learning evaluated.',
+      runtimeVersion, build, checks, evidence: join(scratch, 'native-evidence.json') }, null, 2))
+    process.stdout.write(`Controlled runtime integration passed. Evidence: ${reportPath}\n`)
   }
   const stop = async () => {
     if (!child || child.exitCode !== null || child.signalCode !== null) return
@@ -352,7 +437,93 @@ async function main() {
     let panel = await boot(), mainId = panel.mainId
     const ready = await request('/ready')
     assert.deepEqual(ready.providers.map(value => value.id), [PROVIDER], 'Only the no-network fixture provider is registered')
+    if (suite === 'open-activity') {
+      const intervalWindow = 4500
+      const openOpportunities = () => sqlValues('spirit_autonomy_opportunity').filter(value => value.openGrant !== undefined)
+      await delay(intervalWindow)
+      assert.equal(openOpportunities().length, 0)
+      assert.equal((await request('/trace')).trace.length, 0, 'Ask mode leaves the event-free native model idle')
+      await request('/permissions', { mode: 'full' }, false)
+      const opened = await poll(() => openOpportunities().find(value => value.state === 'settled'),
+        'idle timer offers and the real native model acknowledges a no-event opportunity', 15_000)
+      assert.equal(opened.eventCount, 0)
+      assert.equal(opened.revisitCount, 0)
+      const stateAfterOpen = await inspect(mainId)
+      const input = stateAfterOpen.events.find(event => event.type === 'user/message' && event.data.source?.requestId === opened.dispatchId)
+      assert.equal(input?.data.source.kind, 'spirit')
+      assert.equal(input.data.source.fromSessionId, mainId)
+      assert(stateAfterOpen.events.some(event => event.type === 'tool/call' && event.data.name === 'spirit_decide'))
+      assert(sqlValues('spirit_autonomy_decision').some(value => value.opportunityId === opened.id && value.decision === 'refrain'))
+      evidence('full access offers an event-free idle opportunity and preserves the native self-authored input', { opportunityId: opened.id })
+      const orientation = (await request('/state', undefined, false)).orientation
+      const quiet = await run(mainId, 'spirit_orient', { expectedRevision: orientation.revision, outlook: 'quiet fixture',
+        reason: 'exercise the idle admission policy', attention: 'quiet' })
+      assert.equal(quiet.result.attention, 'quiet')
+      const quietCount = openOpportunities().length
+      await delay(intervalWindow)
+      assert.equal(openOpportunities().length, quietCount, 'Quiet suppresses spontaneous opportunities across another due interval')
+      evidence('quiet orientation suppresses further event-free model requests')
+      const reopened = await run(mainId, 'spirit_orient', { expectedRevision: quiet.result.revision, outlook: 'reopened fixture',
+        reason: 'exercise the owner pause boundary', attention: 'open' })
+      assert.equal(reopened.result.attention, 'open')
+      await request('/control', { action: 'pause' }, false)
+      const pausedCount = openOpportunities().length, traceAtPause = (await request('/trace')).trace.length
+      await delay(intervalWindow)
+      assert.equal(openOpportunities().length, pausedCount)
+      assert.equal((await request('/trace')).trace.length, traceAtPause)
+      evidence('owner pause keeps an open orientation idle across another due interval')
+
+      await request('/behavior', { autonomy: 'hold' })
+      await request('/control', { action: 'resume' }, false)
+      const accepting = await poll(async () => (await request('/trace')).trace.find(row => row.dispatchId && row.hold),
+        'a second event-free opportunity enters a real native model request', 15_000)
+      assert.equal(accepting.sessionId, mainId)
+      await request('/permissions', { mode: 'ask' }, false)
+      await poll(async () => (await inspect(mainId)).status === 'idle', 'revoked opportunity exits the native request')
+      assert.equal((await request('/release-stream', { scriptId: accepting.dispatchId })).released, false)
+      const normal = await run(mainId, 'spirit_read', {})
+      assert(normal.log.events.some(event => event.type === 'user/message' && event.data.id === normal.log.messageId
+        && event.data.source.kind === 'user'))
+      assert(normal.log.events.some(event => event.type === 'user/message' && event.data.source.kind === 'spirit'
+        && event.data.source.requestId === accepting.dispatchId))
+      assert(!sqlValues('spirit_autonomy_decision').some(value => value.opportunityId === accepting.opportunityId))
+      const revokedOpportunity = openOpportunities().find(value => value.id === accepting.opportunityId)
+      assert.equal(revokedOpportunity?.state, 'cancelled')
+      evidence('withdrawing full access aborts an admitted idle model turn and still accepts later owner input', { opportunityId: accepting.opportunityId })
+
+      await request('/behavior', { autonomy: 'omit' })
+      await request('/permissions', { mode: 'full' }, false)
+      const silent = await poll(async () => (await request('/trace')).trace.find(row =>
+        row.dispatchId && row.dispatchId !== opened.dispatchId && row.dispatchId !== accepting.dispatchId),
+      'the real native stream accepts an event-free opportunity and produces no text or tool calls', 15_000)
+      const later = await poll(async () => (await request('/trace')).trace.find(row => row.dispatchId
+        && ![opened.dispatchId, accepting.dispatchId, silent.dispatchId].includes(row.dispatchId)),
+      'another event-free opportunity follows an empty native turn', 15_000)
+      assert.notEqual(later.opportunityId, silent.opportunityId)
+      const silentEvents = (await inspect(mainId)).events
+      const silentInputIndex = silentEvents.findIndex(event => event.type === 'user/message' && event.data.source?.requestId === silent.dispatchId)
+      const silentEndIndex = silentEvents.findIndex((event, index) => index > silentInputIndex && event.type === 'turn/end')
+      assert(silentInputIndex >= 0 && silentEndIndex > silentInputIndex)
+      assert.equal(silentEvents[silentEndIndex].data.reason.kind, 'completed')
+      const emptyTurn = silentEvents.slice(silentInputIndex, silentEndIndex)
+      assert(!emptyTurn.some(event => event.type === 'tool/call'
+        || event.type === 'assistant/message' && textOf(event.data.message).trim()))
+      assert(!sqlValues('spirit_autonomy_decision').some(value => value.opportunityId === silent.opportunityId))
+      const returned = openOpportunities().find(value => value.id === silent.opportunityId)
+      assert.equal(returned?.state, 'settled')
+      assert.equal(returned.endedWithoutDecision?.endSeq, silentEvents[silentEndIndex].seq)
+      evidence('an event-free opportunity can end silently without recording a judgment or blocking the next opportunity',
+        { silentOpportunityId: silent.opportunityId, laterOpportunityId: later.opportunityId })
+      await complete(mainId)
+      return
+    }
     const initialMain = await inspect(mainId)
+    const presets = await request('/presets')
+    const spiritPresets = presets.presets.filter(value =>
+      value.id === 'dsh-personal-spirit' || value.id === 'dsh-spirit' || value.name?.includes('精神'))
+    assert.deepEqual(spiritPresets.map(value => value.id), ['dsh-spirit'], 'The real Web selector lists one Spirit preset')
+    assert.equal(spiritPresets[0].broken, undefined)
+    evidence('the native preset selector offers a single Spirit entry')
     assert.equal(initialMain.header.cwd, join(state, 'workspace'))
     const initialWorkspaces = await request('/workspaces')
     assert(initialWorkspaces.some(value => value.path === initialMain.header.cwd && value.sessionIds.includes(mainId)), 'Main session must belong to a native Workspace, not only have a cwd')
@@ -375,8 +546,9 @@ async function main() {
     assert.equal((await inspect(mainId)).preset, 'standard', 'Later implicit reuse must preserve an explicitly changed managed preset too')
     await request('/native-create', { sessionId: mainId, workspaceId: mainWorkspace.id, agentPreset: 'dsh-spirit' })
     assert.equal((await inspect(mainId)).preset, 'dsh-spirit')
-    const unmanaged = await request('/native-create', { sessionId: `unmanaged-fixture-${randomUUID()}`, workspaceId: mainWorkspace.id })
-    assert.equal((await inspect(unmanaged.sessionId)).preset, 'standard', 'Unmanaged native sessions retain the host default')
+    const unmanaged = await request('/native-create', { sessionId: `unmanaged-fixture-${randomUUID()}`, agentPreset: 'standard',
+      permissionPreset: 'workspace-write', workspaceId: mainWorkspace.id })
+    assert.equal((await inspect(unmanaged.sessionId)).preset, 'standard', 'A different native preset stays outside Spirit')
     assert(!(await request(`/roster?sessionId=${encodeURIComponent(unmanaged.sessionId)}`)).tools.includes('spirit_intent'), 'Spirit tool bindings must not leak into unmanaged native sessions')
     nativeArtifacts.push({ name: 'native-blank-main-reuse', reused, reusedRoster, explicitlyStandard, unmanaged,
       restoredMain: { preset: (await inspect(mainId)).preset, workspaceId: mainWorkspace.id } })
@@ -390,6 +562,238 @@ async function main() {
     evidence('model tool roster exposes continuity tools without owner control setters')
     evidence('native blank reuse preserves Spirit preset and tools while respecting explicit and unmanaged choices')
     await request('/permissions', { mode: 'full' }, false)
+    const nativeConversation = await request('/native-create', { workspaceId: mainWorkspace.id })
+    assert.equal(nativeConversation.agentPreset, 'dsh-spirit')
+    const personalId = nativeConversation.sessionId
+    const state1 = (await run(mainId, 'spirit_orient', { expectedRevision: 0, outlook: 'check-source-before-attribution', reason: 'fixture shared practice', attention: 'quiet' })).result
+    assert.equal(state1.revision, 1)
+    const shared = (await run(mainId, 'spirit_intent', { statement: 'shared fixture work', reason: 'cross-session carry', state: 'waiting',
+      revisit: { at: new Date(Date.now() + 180_000).toISOString() } })).result.intent
+    const firstTurn = randomUUID()
+    await request('/turn', { sessionId: personalId, script: { id: firstTurn, calls: [] } })
+    const firstRequest = (await request('/trace')).trace.find(row => row.scriptId === firstTurn)
+    assert.equal(firstRequest?.working?.orientation?.outlook, state1.outlook, 'A brand new session sees the existing orientation on its first model request')
+    assert(firstRequest.working.activeIntents.some(item => item.id === shared.id && item.revision === 1))
+    assert(!firstRequest.call)
+    const cancelled = (await run(personalId, 'spirit_intent', { id: shared.id, expectedRevision: 1, statement: shared.statement, reason: 'user conversation changed the ongoing work', state: 'cancelled' })).result.intent
+    assert.equal(cancelled.sessionId, mainId); assert.equal(cancelled.state, 'cancelled')
+    assert(cancelled.updatedBy.reference.startsWith(personalId))
+    assert.equal(sqlValues('spirit_autonomy_revisit').find(entry => entry.intentId === shared.id).state, 'stale')
+    const state2 = (await run(personalId, 'spirit_orient', { expectedRevision: 1, outlook: 'revised-in-personal-conversation', reason: 'the first practice omitted a condition' })).result
+    assert.equal(state2.source.sessionId, personalId)
+    assert.equal(state2.attention, 'quiet')
+    const stale = await run(mainId, 'spirit_orient', { expectedRevision: 1, outlook: 'overwrite', reason: 'obsolete context' }, { allowError: true })
+    assert.match(stale.result.error, /修订|版本/)
+    const exchange = (await run(mainId, 'spirit_read', { action: 'exchanges' })).result.items.find(item => item.sessionId === personalId)
+    assert(exchange?.ownerExcerpt && exchange.assistantExcerpt && exchange.throughSeq > exchange.startSeq)
+    evidence('native owner-created conversation inherits active work on its first request and can revise it for the whole profile')
+    const refusal = await run(personalId, 'spirit_decline', { reason: 'decided against this request' })
+    assert.equal(refusal.result.decision.kind, 'ignore')
+    assert.equal(refusal.result.decision.audit.decidedBy, 'self')
+    assert.equal(refusal.result.decision.ticketId, undefined)
+    evidence('declining a real owner request records model authorship and creates no task')
+
+    // A provider-confirmed overflow exercises the normal rc.5 automatic recovery
+    // path. The deliberately content-free summary cannot restore plugin state.
+    await request('/overflow-once', { sessionId: mainId })
+    const overflowing = randomUUID()
+    await request('/turn', { sessionId: mainId, script: { id: overflowing, calls: [] } })
+    const compacted = await inspect(mainId)
+    assert(compacted.events.some(event => event.type === 'compaction/summary'), 'the host actually replaced history with a summary')
+    const afterCompact = randomUUID()
+    await request('/turn', { sessionId: mainId, script: { id: afterCompact, calls: [] } })
+    const continued = (await request('/trace')).trace.find(row => row.scriptId === afterCompact)
+    assert.equal(continued?.working?.orientation?.revision, state2.revision)
+    assert(!continued.working.activeIntents.some(item => item.id === shared.id))
+    evidence('real rc.5 context overflow and native compaction retain the current orientation and do not revive cancelled work')
+
+    const subagentRuns = async () => (await request('/trace')).lifecycle
+    const completedRun = async start => poll(async () => (await subagentRuns()).find(value => value.event === 'subagent/end'
+      && value.runId === start.runId), `settlement of ${start.id}`)
+    const delegate = async (rootId, provider, name, script) => {
+      const prior = new Set((await subagentRuns()).map(value => value.runId))
+      const launched = await run(rootId, provider === 'fork' ? 'subagent_fork' : 'subagent', {
+        name, description: 'Native runtime delegation fixture', prompt: scriptText(script),
+      })
+      assert.match(String(launched.result), new RegExp(`started subagent ${name}`))
+      const started = await poll(async () => (await subagentRuns()).find(value => value.event === 'subagent/start'
+        && value.parentSessionId === rootId && value.provider === provider && !prior.has(value.runId)), `native ${provider} starts ${name}`)
+      assert.equal(started.local, true)
+      return started
+    }
+    const settledNotice = async (start, reply) => poll(async () => (await logs(start.parentSessionId)).find(event =>
+      event.type === 'user/message' && event.data.source?.kind === 'subagent-settled' && event.data.source.senderSessionId === start.id
+      && (!reply || textOf(event.data).includes(reply))), `native completion notice for ${start.id}`)
+    const seenScript = script => poll(async () => (await request('/trace')).trace.find(entry => entry.scriptId === script.id),
+      `native request for fixture ${script.id}`)
+    const teamMode = enabled => request('/native-team', { sessionId: mainId, enabled })
+    assert.equal((await teamMode(false)).enabled, false)
+    const contextProbe = `completed root context ${randomUUID()}`
+    await turn(mainId, { id: randomUUID(), reply: contextProbe })
+    const spawnedScript = { id: randomUUID(), probe: contextProbe, reply: `isolated result ${randomUUID()}` }
+    const spawned = await delegate(mainId, 'spawn', 'isolated', spawnedScript)
+    assert.equal((await completedRun(spawned)).stopReason, 'completed')
+    const spawnedRequest = await seenScript(spawnedScript)
+    assert.equal(spawnedRequest.sessionId, spawned.id)
+    assert.equal(spawnedRequest.sawProbe, false, 'A fresh native spawn starts with its assigned task')
+    assert(!spawnedRequest.tools.some(name => name.startsWith('team_task_')))
+    assert(!spawnedRequest.tools.some(name => name.startsWith('spirit_')), 'A delegated worker does not become a personal conversation')
+    const offNotice = await settledNotice(spawned, spawnedScript.reply)
+    assert.equal(offNotice.data.source.stopReason, 'completed')
+    evidence('Team disabled leaves ordinary native spawn operational with isolated context and a child-attributed result', { childId: spawned.id })
+
+    assert.equal((await teamMode(true)).enabled, true)
+    const task = (await run(mainId, 'team_task_create', { subject: 'Verify shared task',
+      description: 'Claim this fixture task and report back to the Team Lead' })).result
+    assert.equal(task.revision, 1)
+    assert.equal(task.status, 'pending')
+    const sharedFile = join(initialMain.header.cwd, 'team-shared-fixture.txt')
+    const sharedFileText = `Shared workspace fixture ${randomUUID()}`
+    writeFileSync(sharedFile, `${sharedFileText}\n`)
+    const forkScript = { id: randomUUID(), probe: contextProbe, reply: `fork result ${randomUUID()}`, calls: [
+      { name: 'team_task_list', args: {} },
+      { name: 'team_task_update', args: { task_id: task.id, expected_revision: 1, action: 'claim' } },
+      { name: 'team_task_update', args: { task_id: task.id, expected_revision: 2, action: 'complete' } },
+      { name: 'read', args: { file_path: sharedFile } },
+    ] }
+    const forked = await delegate(mainId, 'fork', 'board-member', forkScript)
+    assert.equal((await completedRun(forked)).stopReason, 'completed')
+    const forkRequest = await seenScript(forkScript)
+    assert.equal(forkRequest.sessionId, forked.id)
+    assert.equal(forkRequest.sawProbe, true, 'A native fork reads completed parent context')
+    assert(forkRequest.tools.includes('team_task_list'))
+    assert(!forkRequest.tools.some(name => name.startsWith('spirit_')))
+    const forkLog = await logs(forked.id)
+    const listed = decodedResult(toolResult(forkLog, forkScript, 0)).tasks.find(value => value.id === task.id)
+    assert.equal(listed?.status, 'pending')
+    const claimed = decodedResult(toolResult(forkLog, forkScript, 1))
+    assert.equal(claimed.owner, 'board-member')
+    assert.equal(claimed.revision, 2)
+    assert.equal(decodedResult(toolResult(forkLog, forkScript, 2)).status, 'completed')
+    assert(textOf(toolResult(forkLog, forkScript, 3)?.data.message).includes(sharedFileText),
+      'The delegated worker can read the shared native workspace via the regular host tool')
+    const forkNotice = await settledNotice(forked, forkScript.reply)
+    const rootTask = (await run(mainId, 'team_task_get', { task_id: task.id })).result
+    assert.equal(rootTask.owner, 'board-member')
+    assert.equal(rootTask.revision, 3)
+    assert.equal(rootTask.status, 'completed')
+    assert.deepEqual((await logs(mainId)).filter(event => event.type === 'team/task' && event.data.task.id === task.id)
+      .map(event => event.data.task.revision), [1, 2, 3])
+    nativeArtifacts.push({ name: 'native-team-board-and-fork', offNotice, forkNotice, forkLog, rootTask })
+    evidence('native fork sees completed root context, mutates the shared Team task board as a named member and returns a child-attributed result',
+      { childId: forked.id, taskId: task.id })
+
+    const relayText = `team member result ${randomUUID()}`
+    const relayScript = { id: randomUUID(), calls: [{ name: 'send_message', args: { agent: 'lead', message: relayText } }] }
+    const teammate = await delegate(mainId, 'spawn', 'messenger', relayScript)
+    assert.equal((await completedRun(teammate)).stopReason, 'completed')
+    const memberRelay = await poll(async () => (await logs(mainId)).find(event => event.type === 'user/message'
+      && event.data.source?.kind === 'agent-message' && event.data.source.senderSessionId === teammate.id && textOf(event.data).includes(relayText)),
+    'native Team member message reaches the Lead with member provenance')
+    const rosterResult = (await run(mainId, 'list_agents', {})).result
+    assert.match(String(rosterResult), /lead \[/)
+    assert.match(String(rosterResult), /messenger \[/)
+    const ownerHistory = (await run(mainId, 'spirit_read', { action: 'exchanges' })).result.items
+    assert(ownerHistory.every(entry => !entry.ownerExcerpt.startsWith('Background subagent ')
+      && !entry.ownerExcerpt.startsWith('Agent messenger sent a message:')))
+    nativeArtifacts.push({ name: 'native-member-relay', memberRelay, roster: rosterResult })
+    evidence('Team member messages and the live roster preserve native member names and authorship', { childId: teammate.id })
+
+    const otherChildScript = { id: randomUUID(), hold: true, reply: `unrelated delegate completed ${randomUUID()}` }
+    const otherChild = await delegate(unmanaged.sessionId, 'spawn', 'unrelated-child', otherChildScript)
+    await seenScript(otherChildScript)
+    const otherChildBefore = await member(otherChild.id)
+    assert.equal(otherChildBefore.root, unmanaged.sessionId)
+    assert.equal(otherChildBefore.sandbox, 'workspace-write')
+    const otherScript = { id: randomUUID(), hold: true, reply: `unrelated completed ${randomUUID()}` }
+    await turn(unmanaged.sessionId, otherScript, false)
+    await seenScript(otherScript)
+    assert.equal((await inspect(unmanaged.sessionId)).permissionPreset, 'workspace-write')
+    const assertAbortedDelegation = async (name, action, background = false) => {
+      const heldScript = { id: randomUUID(), hold: true, reply: `cancelled child must not finish ${randomUUID()}`,
+        calls: background ? [{ name: 'bash', args: { description: 'Start finite delegated fixture process',
+          command: `${shellQuote(process.execPath)} -e 'setTimeout(() => {}, 15000)'`, run_in_background: true } }] : [] }
+      const active = await delegate(mainId, 'spawn', name, heldScript)
+      await poll(async () => (await request('/trace')).trace.some(entry => entry.scriptId === heldScript.id && !entry.call),
+        `fixture child ${name} enters its abortable stream`)
+      const runningJob = background && await poll(async () => (await jobs(active.id)).find(job => job.status === 'running'),
+        'delegated native process registers a running job')
+      const live = await member(active.id)
+      assert.equal(live.root, mainId)
+      assert.equal(live.names.self, name)
+      assert.equal(live.names.parent, 'lead')
+      assert.equal(live.header.origin, 'subagent')
+      assert.equal(live.header.parentSession, mainId)
+      assert.equal(live.teamEnabled, true)
+      assert.equal(live.status, 'running')
+      assert.equal(live.sandbox, 'danger-full-access')
+      assert.equal(live.approval, 'never')
+      const queued = { id: randomUUID(), calls: [{ name: 'team_task_create', args: {
+        subject: 'Stale native input', description: 'This queued follow-up must never execute after a control change',
+      } }] }
+      await run(mainId, 'send_message', { agent: name, message: scriptText(queued) })
+      const inbox = await member(active.id)
+      assert(inbox.nextStep + inbox.nextTurn > 0, 'The native member had an accepted queued follow-up')
+      await action()
+      assert.equal((await completedRun(active)).stopReason, 'aborted')
+      assert.equal((await request('/release-stream', { scriptId: heldScript.id })).released, false)
+      assert.equal((await member(active.id)).resident, false)
+      const stoppedJob = runningJob && await poll(async () => (await logs(active.id)).find(event =>
+        event.type === 'job/settled' && event.data.jobId === runningJob.id && event.data.status === 'killed'),
+      'owner revocation kills the delegated background job', 6000)
+      if (stoppedJob) assert.equal(stoppedJob.data.cause, 'kill')
+      const other = await inspect(unmanaged.sessionId)
+      assert.equal(other.status, 'running')
+      assert.equal(other.permissionPreset, 'workspace-write')
+      const unrelatedDelegate = await member(otherChild.id)
+      assert.equal(unrelatedDelegate.status, 'running')
+      assert.equal(unrelatedDelegate.sandbox, otherChildBefore.sandbox)
+      assert.equal(unrelatedDelegate.approval, otherChildBefore.approval)
+      return { active, heldScript, queued, live, inbox, ...(stoppedJob ? { stoppedJob } : {}) }
+    }
+    const revoked = await assertAbortedDelegation('revoked', () => request('/permissions', { mode: 'ask' }, false), true)
+    assert.equal((await inspect(mainId)).permissionPreset, 'workspace-write')
+    await request('/permissions', { mode: 'full' }, false)
+    const stopped = await assertAbortedDelegation('stopped', async () => {
+      await request('/control', { action: 'stop' }, false)
+      await request('/control', { action: 'resume' }, false)
+    })
+    await run(mainId, 'team_task_list', {})
+    assert.equal((await request('/release-stream', { scriptId: otherScript.id })).released, true)
+    assert.equal((await request('/release-stream', { scriptId: otherChildScript.id })).released, true)
+    assert.equal((await completedRun(otherChild)).stopReason, 'completed')
+    const unrelatedNotice = await settledNotice(otherChild, otherChildScript.reply)
+    await poll(async () => (await inspect(unmanaged.sessionId)).status === 'idle', 'unrelated native root completes independently')
+    const afterControls = await request('/trace'), controlledRoot = await logs(mainId)
+    for (const cancelledRun of [revoked, stopped]) {
+      const { active, heldScript, queued } = cancelledRun
+      assert.equal(afterControls.lifecycle.filter(value => value.event === 'subagent/start' && value.id === active.id).length, 1)
+      assert(!afterControls.trace.some(value => value.scriptId === queued.id))
+      assert(!controlledRoot.some(event => event.type === 'user/message' && event.data.source?.senderSessionId === active.id))
+      assert(!controlledRoot.some(event => event.type === 'assistant/message' && textOf(event.data.message).includes(heldScript.reply)))
+      assert(!(await logs(active.id)).some(event => event.type === 'tool/call' && event.data.callId === callId(queued.id, 0)))
+    }
+    assert(!controlledRoot.some(event => event.type === 'team/task' && event.data.task.subject === 'Stale native input'))
+    const unrelated = await inspect(unmanaged.sessionId)
+    assert.equal(unrelated.permissionPreset, 'workspace-write')
+    assert(unrelated.events.some(event => event.type.startsWith('assistant/') && JSON.stringify(event.data).includes(otherScript.reply)))
+    nativeArtifacts.push({ name: 'native-delegation-control-boundaries', revoked, stopped, unrelated, unrelatedNotice })
+    evidence('native delegation revocation and stop abort work and background jobs without replaying queued work or affecting another preset')
+
+    await request('/permissions', { mode: 'ask' }, false)
+    const explicit = { id: randomUUID(), hold: true, reply: `new explicitly delegated work ${randomUUID()}` }
+    await run(mainId, 'send_message', { agent: 'revoked', message: scriptText(explicit) })
+    assert.equal((await seenScript(explicit)).sessionId, revoked.active.id)
+    const resumed = await member(revoked.active.id)
+    assert.equal(resumed.sandbox, 'workspace-write')
+    assert.equal(resumed.approval, 'never')
+    assert.equal((await request('/release-stream', { scriptId: explicit.id })).released, true)
+    await settledNotice(revoked.active, explicit.reply)
+    assert(!(await request('/trace')).trace.some(value => value.scriptId === revoked.queued.id))
+    nativeArtifacts.push({ name: 'native-delegation-explicit-resume-under-ask', resumed })
+    evidence('a new native follow-up can continue the member under workspace access without restoring the revoked input')
+    await request('/permissions', { mode: 'full' }, false)
+
     const catalog = await run(mainId, 'spirit_sessions', { action: 'models' })
     assert([...flatten(catalog.result)].some(value => value.id === 'high'))
     const childCreated = await run(mainId, 'spirit_sessions', { action: 'create', title: 'Runtime fixture child', cwd: join(state, 'fixture-child'),
@@ -501,6 +905,12 @@ async function main() {
     await stop()
     await delay(Math.max(0, Date.parse(due) - Date.now() + 100))
     panel = await boot(); assert.equal(panel.mainId, mainId)
+    assert.equal((await inspect(mainId)).teamEnabled, true)
+    const restoredTask = (await run(mainId, 'team_task_get', { task_id: task.id })).result
+    assert.equal(restoredTask.owner, 'board-member')
+    assert.equal(restoredTask.revision, 3)
+    assert.equal(restoredTask.status, 'completed')
+    evidence('restart preserves the selected Team mode and shared task history in the native Lead Session')
     const restoredWorkspaces = await request('/workspaces')
     assert(restoredWorkspaces.some(value => value.sessionIds.includes(mainId)))
     assert(restoredWorkspaces.some(value => value.sessionIds.includes(childId)))
@@ -606,16 +1016,11 @@ async function main() {
     assert.equal((await request('/trace')).trace.length, callsAtStop)
     assert(sqlValues('spirit_autonomy_intent').filter(value => value.state !== 'done').every(value => value.state === 'cancelled'))
     evidence('pause cancels active inference and stop prevents future autonomous actions')
-    const finalTrace = await request('/trace')
-    writeFileSync(join(scratch, 'native-evidence.json'), JSON.stringify({ artifacts: nativeArtifacts, trace: finalTrace.trace,
-      main: await inspect(mainId), child: await inspect(childId), opportunities: sqlValues('spirit_autonomy_opportunity'), decisions: sqlValues('spirit_autonomy_decision') }, null, 2))
-    writeFileSync(reportPath, JSON.stringify({ passed: true, kind: 'controlled-runtime-integration', disclaimer: 'Deterministic local protocol fixtures; no live-model reasoning or learning evaluated.',
-      runtimeVersion, build, checks, evidence: join(scratch, 'native-evidence.json') }, null, 2))
-    process.stdout.write(`Controlled runtime integration passed. Evidence: ${reportPath}\n`)
+    await complete(mainId, childId)
   } catch (error) {
     writeFileSync(join(scratch, 'native-failure-evidence.json'), JSON.stringify({ artifacts: nativeArtifacts,
       ...(origin ? { runtime: await request('/trace').catch(value => ({ error: String(value) })) } : {}) }, null, 2))
-    writeFileSync(reportPath, JSON.stringify({ passed: false, kind: 'controlled-runtime-integration', runtimeVersion, build, checks, error: String(error), stack: error?.stack }, null, 2))
+    writeFileSync(reportPath, JSON.stringify({ passed: false, kind: 'controlled-runtime-integration', suite, runtimeVersion, build, checks, error: String(error), stack: error?.stack }, null, 2))
     throw error
   } finally { await stop() }
 }

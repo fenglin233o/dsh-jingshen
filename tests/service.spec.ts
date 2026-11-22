@@ -21,6 +21,47 @@ const initiative: InitiativeRequest = { kind: 'self', sessionId: 'owner-session'
 const allowed: ServiceOptions = { initiativeAllowed: source => source.grantRevision === 2 }
 
 describe('SuperAgent核心上的个人任务', () => {
+  it('拒绝决定保留真实来源并阻止同一请求随后产生委派', async () => {
+    const { app, transport } = fixture()
+    const turn = { sessionId: request.sessionId, startSeq: 7, throughSeq: 11, callId: 'decline' }
+    const decision = app.decline(request, '没有共同依据，决定不做', turn.callId, turn)
+    expect(decision).toMatchObject({ kind: 'ignore', audit: { source: { kind: 'owner', ...request }, decidedBy: 'self', turn } })
+    expect(app.decline(request, '再次尝试', 'other-call').id).toBe(decision.id)
+    expect(() => app.open(request, input)).toThrow(/已经被拒绝|已被拒绝/)
+    await app.effects.idle()
+    expect(transport.ensure).not.toHaveBeenCalled()
+    const later = { ...request, id: 'new-owner-request' }
+    app.open(later, input)
+    expect(() => app.decline(later, '已经承接', 'too-late')).toThrow(/已进入工作/)
+  })
+  it('意向修订停止旧版本委派，继续需要新依据，独立本人任务仍然有效', async () => {
+    let revision = 1
+    const { app, transport } = fixture(2, { ...allowed, intentCurrent: intent => intent.id === 'intent' && intent.revision === revision })
+    const task = app.open({ ...initiative, intent: { id: 'intent', revision: 1 } }, input)
+    const separate = app.open(request, { title: '独立的本人请求' })
+    await app.effects.idle()
+    expect(app.book.get(task.id).source).toMatchObject({ intent: { id: 'intent', revision: 1 } })
+    revision = 2
+    expect(() => app.assertTaskIntent(task.id)).toThrow(/意向版本已失效/)
+    app.reconcileIntents()
+    expect(app.require(task.id).ended).toMatchObject({ by: 'executor', outcome: 'dropped' })
+    expect(app.require(separate.id).ended).toBeUndefined()
+    expect(transport.stop).toHaveBeenCalledWith(workerId(task))
+    expect(() => app.followup(task.id, { ...initiative, id: 'old-continuation' })).toThrow(/意向版本已失效/)
+    const successor = app.followup(task.id, { ...initiative, id: 'new-continuation', intent: { id: 'intent', revision: 2 } })
+    expect(successor.id).not.toBe(task.id)
+    expect(app.book.get(successor.id)).toMatchObject({ parentTicketId: task.id, source: { intent: { id: 'intent', revision: 2 } } })
+  })
+  it('保留本人原话与模型执行停止的判断，且真正撤销工作', async () => {
+    const { app, transport } = fixture(), task = app.open(request, input)
+    await app.effects.idle()
+    const stopRequest = { ...request, id: 'stop-request', text: '停止读书安排任务' }
+    const turn = { sessionId: request.sessionId, startSeq: 30, throughSeq: 38, callId: 'stop' }
+    const result = app.stopTask(task.id, '依据本人当前的要求执行停止', turn, stopRequest)
+    expect(result.task.ended).toMatchObject({ by: 'human', outcome: 'stopped' })
+    expect(result).toMatchObject({ decision: { kind: 'stop', audit: { source: { kind: 'owner', ...stopRequest }, decidedBy: 'self', turn } } })
+    expect(transport.stop).toHaveBeenCalledWith(workerId(task))
+  })
   it('同一请求重试只有一个任务，启动独立执行会话并持久交付输入', async () => {
     const { app, transport } = fixture(), task = app.open(request, input)
     expect(app.open(request, input).id).toBe(task.id)

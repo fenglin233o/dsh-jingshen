@@ -84,7 +84,7 @@ function fixture(options: HarnessBridgeOptions = {}) {
   return { bridge: new HarnessBridge(ctx, options), ctx, agents, logs, makeAgent, calls, resolveAgent, create, flush, open, list, page, search, catalog, resolveCallConfig, setPermission, rename, workspaces, workspaceCreate, workspaceResolve }
 }
 
-describe('Harness 0.2.2-rc.3 native Spirit bridge', () => {
+describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
   const record = (seq: number, type: string, data: SessionPage['records'][number]['event']['data']): SessionPage['records'][number] =>
     ({ type: 'event', event: { seq, type, time: 1, data } })
   const user = (id: string, kind = 'user', principal?: unknown) => ({ role: 'user', id, content: [{ type: 'text', text: 'Owner request' }],

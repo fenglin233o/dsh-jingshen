@@ -6,16 +6,18 @@ import { Engine, key, latestAssignment, liveTicket, waitsForPerson, type Ticket,
 import { Store } from '../upstream/src/app/store.ts'
 import { Effects, Later } from '../upstream/src/app/effects.ts'
 import { HealthBoard } from '../upstream/src/infra/health.ts'
-import { ExperienceBook, type RequestSource } from './experience.ts'
+import { ExperienceBook, type IntentBasis, type RequestSource } from './experience.ts'
+import type { TurnReference } from './continuity.ts'
 
 export const OpenInput = z.object({ title: z.string().trim().min(1).max(160),
   criteria: z.array(z.string().trim().min(1).max(2000)).max(24).default([]) }).strict()
-export interface OwnerRequest { kind?: 'owner'; sessionId: string; id: string; text: string }
-export interface InitiativeRequest { kind: 'self'; sessionId: string; id: string; text: string; reason: string; grantRevision: number }
+export type OwnerRequest = Omit<Extract<RequestSource, { kind: 'owner' }>, 'kind'> & { kind?: 'owner' }
+export type InitiativeRequest = Extract<RequestSource, { kind: 'self' }>
 export type WorkRequest = OwnerRequest | InitiativeRequest
 export interface ServiceOptions {
   /** Checked on admission and again before dispatch; the owner controls this standing grant. */
   initiativeAllowed?: (request: InitiativeRequest) => boolean
+  intentCurrent?: (intent: IntentBasis) => boolean | undefined
   /** A durable owner pause/stop, also usable while the integration is being initialized. */
   paused?: () => boolean
 }
@@ -25,16 +27,20 @@ export interface Transport {
   stop(sessionId: string): Promise<void>
 }
 export const workerId = (ticket: Ticket) => `spirit-${ticket.id}-${latestAssignment(ticket)!.id}`
+const workerSessionId = /^spirit-([a-f0-9]{32})-([a-f0-9]{32})$/
 const recoveryInstruction = '宿主进程曾中断。先读取保留的会话、工作区与相关系统的实际状态，再判断下一步；已经完成的外部操作不要重复执行。可继续、等待或如实报告阻碍，无需为重启本身要求本人重新授权。'
 const requestSource = (request: WorkRequest): RequestSource => {
   if (!request.sessionId.trim() || !request.id.trim() || !request.text.trim()) throw new Error('请求需要会话、来源标识和具体内容')
+  if (request.turn && request.turn.sessionId !== request.sessionId) throw new Error('请求的回合必须来自实际会话')
   if (request.kind === 'self') {
     if (!request.reason.trim() || !Number.isSafeInteger(request.grantRevision) || request.grantRevision < 0) throw new Error('自主发起需要理由和有效的长期授权版本')
-    return { kind: 'self', sessionId: request.sessionId, id: request.id, text: request.text, reason: request.reason, grantRevision: request.grantRevision }
+    return { kind: 'self', sessionId: request.sessionId, id: request.id, text: request.text, reason: request.reason, grantRevision: request.grantRevision,
+      ...(request.intent ? { intent: request.intent } : {}), ...(request.turn ? { turn: request.turn } : {}) }
   }
-  return { kind: 'owner', sessionId: request.sessionId, id: request.id, text: request.text }
+  return { kind: 'owner', sessionId: request.sessionId, id: request.id, text: request.text, ...(request.turn ? { turn: request.turn } : {}) }
 }
 const grantRule = (request: InitiativeRequest) => `standing-grant:${request.grantRevision}`
+const expiredIntent = '任务所依据的意向版本已失效；结束这次委派。有效的新决定可建立关联任务。'
 
 export class PersonalService {
   readonly store: Store
@@ -57,7 +63,10 @@ export class PersonalService {
     this.store = new Store(join(stateDir, 'personal.sqlite'))
     this.book = new ExperienceBook(this.store, maxRevisions)
     this.store.db.exec(`CREATE TABLE IF NOT EXISTS spirit_dispatch (session_id TEXT NOT NULL, request_id TEXT NOT NULL, text TEXT NOT NULL,
-      notice INTEGER, PRIMARY KEY (session_id, request_id))`)
+      notice INTEGER, PRIMARY KEY (session_id, request_id));
+      CREATE TABLE IF NOT EXISTS spirit_owner_disposition (session_id TEXT NOT NULL, request_id TEXT NOT NULL, decision_id TEXT,
+        PRIMARY KEY (session_id, request_id));
+      CREATE TABLE IF NOT EXISTS spirit_task_intent (ticket_id TEXT PRIMARY KEY, intent_id TEXT NOT NULL, revision INTEGER NOT NULL);`)
     this.lastEngineTime = this.store.tickets.list().reduce((latest, ticket) => Math.max(latest, Date.parse(ticket.updatedAt) || 0), 0)
     this.effects = new Effects(this.store, this.health)
     this.engine = new Engine({ repo: this.store,
@@ -186,13 +195,32 @@ export class PersonalService {
   private isPaused(): boolean { return this.closing || this.options.paused?.() === true }
   private assertDispatchAllowed(ticket: Ticket): void {
     if (this.isPaused()) throw new Later('本人已暂停处理')
-    const source = this.book.get(ticket.id).latestSource
+    this.assertTaskIntent(ticket.id)
+    const source = this.book.latestRequestSource(ticket.id)
     if (source.kind === 'self' && !this.options.initiativeAllowed?.(source)) throw new Later('自主发起所依据的长期授权已改变；等待重新判断')
   }
   private authorize(request: WorkRequest): RequestSource {
     const source = requestSource(request)
     if (source.kind === 'self' && !this.options.initiativeAllowed?.(source)) throw new Error('当前长期授权不允许这项自主发起')
+    if (source.kind === 'self' && source.intent && !this.options.intentCurrent?.(source.intent)) throw new Error(expiredIntent)
     return source
+  }
+  private taskIntent(ticketId: string): IntentBasis | undefined {
+    const row = this.store.db.prepare('SELECT intent_id,revision FROM spirit_task_intent WHERE ticket_id=?').get(ticketId)
+    return row && { id: String(row.intent_id), revision: Number(row.revision) }
+  }
+  assertTaskIntent(ticketId: string): void {
+    const basis = this.taskIntent(ticketId)
+    if (basis && !this.options.intentCurrent?.(basis)) throw new Error(expiredIntent)
+  }
+  reconcileIntents(): void {
+    this.store.atomic(() => {
+      for (const row of this.store.db.prepare(`SELECT ticket_id,intent_id,revision FROM spirit_task_intent AS binding
+        JOIN ticket ON ticket.id=binding.ticket_id WHERE ticket.open=1`).all()) {
+        if (this.options.intentCurrent?.({ id: String(row.intent_id), revision: Number(row.revision) }) !== false) continue
+        this.engine.report(String(row.ticket_id), { state: 'dropped', summary: expiredIntent })
+      }
+    })
   }
   private acquire(id: string): void {
     if (this.isPaused() || this.stopping.has(id) || !this.busy.has(id) && this.busy.size >= this.concurrency) throw new Later('等待执行会话')
@@ -207,21 +235,58 @@ export class PersonalService {
     })
     this.pendingStops.add(stopped)
   }
+  private receiveRequest(id: string, source: RequestSource): void {
+    this.engine.receive({ id, source: 'personal', threads: [{ source: 'personal', id }],
+      actor: { source: 'personal', id: source.kind === 'owner' ? 'owner' : 'spirit' }, human: source.kind === 'owner',
+      ...(source.kind === 'owner' ? { addressed: 'direct' as const } : {}), at: new Date().toISOString(), text: source.text,
+      channel: { source: 'personal', thread: id, address: { sessionId: source.sessionId } }, meta: { request: source } })
+  }
+  private claimOwnerRequest(source: RequestSource): void {
+    if (source.kind !== 'owner') return
+    const row = this.store.db.prepare('SELECT decision_id FROM spirit_owner_disposition WHERE session_id=? AND request_id=?').get(source.sessionId, source.id)
+    if (row?.decision_id) throw new Error('当前本人请求已被拒绝；再次承接需要本人发出新请求')
+    if (!row) this.store.db.prepare('INSERT INTO spirit_owner_disposition VALUES(?,?,NULL)').run(source.sessionId, source.id)
+  }
+  decline(request: OwnerRequest, reason: string, callId: string, turn?: TurnReference) {
+    const source = this.authorize(request), id = key('personal-declined', request.sessionId, request.id)
+    return this.store.atomic(() => {
+      const row = this.store.db.prepare('SELECT decision_id FROM spirit_owner_disposition WHERE session_id=? AND request_id=?').get(source.sessionId, source.id)
+      if (row) {
+        if (typeof row.decision_id === 'string') return this.store.decisions.get(row.decision_id)!
+        throw new Error('当前本人请求已进入工作；可另行停止相关任务')
+      }
+      this.receiveRequest(id, source)
+      const decision = this.engine.decide(id, { kind: 'ignore', reason, audit: { source, decidedBy: 'self', callId, ...(turn ? { turn } : {}) } })
+      this.store.db.prepare('INSERT INTO spirit_owner_disposition VALUES(?,?,?)').run(source.sessionId, source.id, decision.id)
+      return decision
+    })
+  }
+  stopTask(ticketId: string, reason: string, turn: TurnReference, request?: OwnerRequest) {
+    if (!request) return { task: this.engine.report(ticketId, { state: 'dropped', summary: reason }), source: 'self' as const, decidedBy: 'self', turn }
+    const source = this.authorize(request), triggerId = key('personal-stop', ticketId, request.sessionId, request.id)
+    return this.store.atomic(() => {
+      this.require(ticketId)
+      this.claimOwnerRequest(source)
+      this.receiveRequest(triggerId, source)
+      const decision = this.engine.decide(triggerId, { kind: 'stop', ticketId, reason, audit: { source, decidedBy: 'self', turn } })
+      return { task: this.require(ticketId), source: 'owner' as const, decidedBy: 'self', decision }
+    })
+  }
   open(request: WorkRequest, input: unknown): Ticket { return this.create(request, input) }
   private create(request: WorkRequest, input: unknown, parentTicketId?: string): Ticket {
     const parsed = OpenInput.parse(input), source = this.authorize(request)
     const id = source.kind === 'owner' ? key('personal', request.sessionId, request.id, parsed.title)
       : key('personal-initiative', request.sessionId, request.id, parsed.title, parentTicketId ?? '')
     return this.store.atomic(() => {
-      this.engine.receive({ id, source: 'personal', threads: [{ source: 'personal', id }],
-        actor: { source: 'personal', id: source.kind === 'owner' ? 'owner' : 'spirit' }, human: source.kind === 'owner',
-        ...(source.kind === 'owner' ? { addressed: 'direct' as const } : {}), at: new Date().toISOString(), text: request.text,
-        channel: { source: 'personal', thread: id, address: { sessionId: request.sessionId } }, meta: { request: source } })
+      this.claimOwnerRequest(source)
+      this.receiveRequest(id, source)
       const decision = this.engine.decide(id, { kind: 'accept', title: parsed.title, scope: request.text,
         reason: source.kind === 'owner' ? '本人会话中的真实请求' : source.reason,
         ...(source.kind === 'self' ? { rules: [grantRule(source)] } : {}), audit: { source, ...(parentTicketId ? { parentTicketId } : {}) } })
       if (!decision.ticketId) throw new Error('请求没有形成任务')
       this.book.create(decision.ticketId, request.sessionId, request.id, request.text, parsed.criteria, source, parentTicketId)
+      if (source.kind === 'self' && source.intent) this.store.db.prepare('INSERT OR IGNORE INTO spirit_task_intent VALUES(?,?,?)')
+        .run(decision.ticketId, source.intent.id, source.intent.revision)
       return this.store.tickets.get(decision.ticketId)!
     })
   }
@@ -232,16 +297,27 @@ export class PersonalService {
     // A fresh decision may authorize a successor; it does not rewrite the old immutable mandate or impersonate its owner.
     const original = value.source
     const revokedOriginal = original.kind === 'self' && !this.options.initiativeAllowed?.(original)
+    const oldIntent = this.taskIntent(ticketId)
+    const revokedIntent = oldIntent && !this.options.intentCurrent?.(oldIntent)
+    const newIntent = source.kind === 'self' && source.intent
+    if (revokedIntent && source.kind === 'self' && !newIntent) throw new Error(expiredIntent)
     const heldForOwner = source.kind === 'self' && !!ticket.attention
-    if (!heldForOwner && (revokedOriginal || !liveTicket(ticket) && source.kind === 'self')) {
+    if (heldForOwner && newIntent && (newIntent.id !== oldIntent?.id || newIntent.revision !== oldIntent.revision)) {
+      throw new Error('任务正在等待本人；新意向可另行承接')
+    }
+    if (revokedIntent || !heldForOwner && (revokedOriginal || !liveTicket(ticket) && source.kind === 'self'
+      || newIntent && (newIntent.id !== oldIntent?.id || newIntent.revision !== oldIntent.revision))) {
       return this.store.atomic(() => {
-        if (liveTicket(ticket)) this.engine.report(ticketId, { state: 'dropped', summary: '原自主授权已改变；由新的明确跟进决定建立关联任务，保留原任务、来源及工作记录。' })
+        if (liveTicket(ticket) && (revokedOriginal || revokedIntent)) this.engine.report(ticketId, { state: 'dropped',
+          summary: revokedIntent ? expiredIntent : '原自主授权已改变；由新的明确跟进决定建立关联任务，保留原任务、来源及工作记录。' })
         return this.create(source, { title: ticket.title, criteria: (value.frames.at(-1)?.criteria ?? value.criteria).map(item => item.text) }, ticketId)
       })
     }
     return this.store.atomic(() => {
+      this.claimOwnerRequest(source)
       const known = value.requests.some(item => item.kind === source.kind && item.id === source.id)
       if (known) return this.require(ticketId)
+      if (source.kind === 'owner' && oldIntent) this.store.db.prepare('DELETE FROM spirit_task_intent WHERE ticket_id=?').run(ticketId)
       this.book.requestEvidence(ticketId, source)
       // A model may revisit a runtime failure under its standing grant; a live question for the owner is still pending.
       if (source.kind === 'self' && waitsForPerson(ticket) && !ticket.attention) this.engine.retryTicket(ticketId)
@@ -260,11 +336,32 @@ export class PersonalService {
     })
   }
   require(id: string): Ticket { const ticket = this.store.tickets.get(id); if (!ticket) throw new Error('任务不存在'); return ticket }
-  report(ticketId: string, report: WorkerReport, limits = '', evidenceIds: string[] = [], check = ''): Ticket {
+  workerTicket(sessionId: string): Ticket | undefined {
+    const worker = workerSessionId.exec(sessionId)
+    if (!worker) return undefined
+    const ticket = this.store.tickets.get(worker[1]!)
+    return ticket?.assignments.some(assignment => assignment.id === worker[2]) ? ticket : undefined
+  }
+  ticketPage(offset: number, limit: number, pending = false) {
+    const where = pending ? ' WHERE open=1' : ''
+    const total = Number(this.store.db.prepare(`SELECT count(*) AS total FROM ticket${where}`).get()?.total)
+    const items = this.store.db.prepare(`SELECT value FROM ticket${where} ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(limit, offset)
+      .map(row => {
+        const ticket = JSON.parse(String(row.value)) as Ticket
+        const report = latestAssignment(ticket)?.report, attention = ticket.attention
+        return { id: ticket.id, title: ticket.title, ended: ticket.ended,
+          report: report && { ...report, summary: report.summary.slice(0, 640) },
+          attention: attention && { ...attention, question: attention.question.slice(0, 320) },
+          ...(pending ? { sessionId: workerId(ticket), busy: this.busy.has(ticket.id) } : {}) }
+      })
+    return { items, total }
+  }
+  report(ticketId: string, report: WorkerReport, limits = '', evidenceIds: string[] = [], check = '', turn?: TurnReference): Ticket {
     this.finishing.add(ticketId)
     try {
       return this.store.atomic(() => {
-        if (report.state === 'ready') this.book.complete(ticketId, report.summary, limits, evidenceIds, check)
+        this.assertTaskIntent(ticketId)
+        if (report.state === 'ready') this.book.complete(ticketId, report.summary, limits, evidenceIds, check, turn)
         const ticket = this.engine.report(ticketId, report)
         if (['ready', 'blocked', 'failed'].includes(report.state) || report.question) {
           const message = { id: key(ticketId, String(this.book.get(ticketId).round), report.state, report.summary, report.question ?? ''),
@@ -289,7 +386,7 @@ export class PersonalService {
     this.effects.kick()
   }
   /** Reconsider queued lifecycle work after the owner changes pause state; this creates no new request. */
-  refresh(): void { if (!this.closing) { this.engine.evaluateDue(); this.effects.kick() } }
+  refresh(): void { if (!this.closing) { this.reconcileIntents(); this.engine.evaluateDue(); this.effects.kick() } }
   /** Inspection does not dispatch anything; the autonomous model decides whether a pending item merits work. */
   pending() {
     return this.store.tickets.open().map(ticket => ({ id: ticket.id, title: ticket.title, sessionId: workerId(ticket),

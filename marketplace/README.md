@@ -1,6 +1,6 @@
 # 精神：公开分发与市场收录
 
-核查日期：2026-11-15。目标包版本 0.2.0，Harness 0.2.2-rc.3，Node.js 24.9+。这些文件是发布材料和本地工具，**不表示已经发布、提交或获准收录**。
+当前开发包为 `dsh-jingshen@0.3.0`，唯一目标宿主为 `0.2.2-rc.5`，需要 Node.js 24.9+。本地安装和验证见 [README](../README.md) 与 [验证记录](../docs/verification.json)。下文的公开发行历史和市场调研记录于 2026-11-15，对应已经发行的 0.2.0。
 
 ## 本次选定的市场
 
@@ -8,7 +8,7 @@
 
 本次公开包名选为 **`dsh-jingshen`**，显示名仍为“精神”，作者署名 **fenglin**，公开仓库为 **[fenglin233o/dsh-jingshen](https://github.com/fenglin233o/dsh-jingshen)**。主发布路径是：**公开含预构建 `lib/` 的 GitHub 仓库 → awesome-dsh-plugin 单 YAML PR → 审核合并后由 dshmarket 使用 `github:owner/repo` 安装**。这条路径无需 npm 账户或 Release 附件。
 
-源码及构建产物已推送到 `main`。市场条目不填 `tarball`，也没有 npm 映射时，实际安装代码选择 `github:fenglin233o/dsh-jingshen`，因此跟随仓库默认分支 **`main`**。目录 schema 没有固定 tag 字段；不要把 `/tree/v0.2.0` 作为根包 URL。需要固定版本时可直接使用 CLI：
+0.2.0 的源码及构建产物已推送到 `main`。市场条目不填 `tarball`，也没有 npm 映射时，实际安装代码选择 `github:fenglin233o/dsh-jingshen`，因此跟随仓库默认分支 **`main`**。目录 schema 没有固定 tag 字段；不要把 `/tree/v0.2.0` 作为根包 URL。需要固定版本时可直接使用 CLI：
 
 ```sh
 # 固定 v0.2.0；使用自己的 profile 名称。
@@ -57,7 +57,7 @@ Harness 0.2.2-rc.3 及本次核查的官方 `master` 都没有默认索引源。
 - `./locale/en.json`、`./locale/zh.json` 的 `meta.title` / `meta.description`，通过 package exports 读取；缺失时回退到包名/description。
 - `package.json` 的 `keywords` → 索引 `metadata.keywords`。关键词帮助已配置索引内的搜索，不会触发收录。
 - manifest 的 `author`、`homepage`、`repository`，以及 monorepo 的 `repository.directory`。只填写真实公开信息。
-- `engines.dsh` 原样进入版本兼容范围。目前保持 `0.2.2-rc.3`，不放宽到尚未验证的宿主版本。
+- `engines.dsh` 原样进入版本兼容范围。当前包将目标锁定为 `0.2.2-rc.5`。
 
 本次使用用户确认的作者署名 fenglin，未添加虚构主页、仓库、下载量、审核标签或 Desktop 支持声明。市场详情默认可以使用包内 README；无需另造介绍页面。
 
@@ -73,7 +73,7 @@ npm --prefix marketplace run check -- --online
 npm pack --ignore-scripts
 ```
 
-`check-release.mjs` 检查真实包的名称、兼容范围、lockfile、客户端模块 ID、bundle 引用、保留上游资源定位、locale 元数据和 `npm pack --dry-run` 的实际文件列表。它使用官方 `@deepseek-ai/dsh-plugin-market-index@0.2.2-rc.3` 校验元数据；`--online` 还只读查询公开 npm 名称及该版本是否已存在。检查不代替宿主集成测试，也不判断账户是否拥有发布权。
+`check-release.mjs` 检查真实包的名称、兼容范围、lockfile、客户端模块 ID、bundle 引用、保留上游资源定位、locale 元数据和 `npm pack --dry-run` 的实际文件列表。它使用官方 `@deepseek-ai/dsh-plugin-market-index@0.2.2-rc.5` 校验元数据；`--online` 还只读查询公开 npm 名称及该版本是否已存在。检查不代替宿主集成测试，也不判断账户是否拥有发布权。
 
 公开发布前继续使用包内 `docs/verification.json` 所记录的真实验证范围。Electron Desktop 尚未验收，Linux Web 通过不代表桌面发行通过；真实模型的长期学习或行为改善也未由受控测试证明。
 

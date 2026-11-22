@@ -1,4 +1,4 @@
-dsh-jingshen 0.2.0 · 精神
+dsh-jingshen 0.3.0 · 精神
 
 This is an independently adapted personal plugin, not an official DeepSeek product.
 It incorporates code from deepseek-ai/dsh-superagent-prototype under the MIT license.
@@ -9,7 +9,7 @@ The upstream LICENSE is included unchanged.
 The personal bundle reuses the upstream transactional Engine, SQLite Store and
 Effects queue. Necessary upstream source and migration assets are included in
 upstream/; PROVENANCE.json records small Harness API and asset-path adaptations.
-Conversation delivery and session-local model selection use new native rc.3 adapters.
+Conversation delivery, delegation and session-local model selection use DeepSeek Harness 0.2.2-rc.5.
 The GitHub/Feishu watchers, team setup, team prompts and upstream management UI are not mounted.
 
 The interpretation of Hegel and the new experience, memory, runtime and UI code belong

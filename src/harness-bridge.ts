@@ -1,4 +1,4 @@
-/** Native, session-local operations for DeepSeek Harness 0.2.2-rc.3. */
+/** Native, session-local operations for DeepSeek Harness 0.2.2-rc.5. */
 import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -76,6 +76,8 @@ export interface SpiritPost {
   /** A short presentation label for non-waking context. */
   summary?: string
   signal?: AbortSignal
+  /** Synchronous eligibility check immediately before the first native admission. */
+  beforeEnqueue?: (agent: Agent) => void
 }
 export interface SpiritPostReceipt {
   accepted: true
@@ -140,22 +142,21 @@ export interface PresetContinuityContext {
 }
 
 /**
- * rc.3's Workspace navigation reuses blank Sessions through create(), and an
- * omitted preset there silently reapplies the deployment default. Preserve the
- * recorded choice only for an existing managed blank; explicit owner/model
- * choices and every unmanaged creation retain native semantics. Remove this
- * compatibility shim once Harness preserves omission on blank reuse itself.
+ * rc.5 Workspace navigation reuses blank Sessions through create(). Omission
+ * reapplies the deployment default. Preserve an eligible blank's recorded
+ * preset (including a user's explicit Standard selection) during navigation.
+ * Explicit selections and new Sessions go directly to the native controller.
  */
-export function preserveManagedBlankPreset(ctx: PresetContinuityContext, managed: (id: string) => boolean): () => void {
+export function preserveManagedBlankPreset(ctx: PresetContinuityContext, eligible: (id: string) => boolean): () => void {
   const controller = ctx.sessionController, descriptor = Object.getOwnPropertyDescriptor(controller, 'create')
   const original = controller.create
   let active = true
   const create = async function(this: PresetContinuityContext['sessionController'], request: Parameters<typeof original>[0]) {
-    if (!active || request.sessionId === undefined || request.agentPreset !== undefined || !managed(request.sessionId)) {
+    if (!active || request.sessionId === undefined || request.agentPreset !== undefined || !eligible(request.sessionId)) {
       return original.call(this, request)
     }
     const result = await this.resolveAgent(request.sessionId)
-    if (active && !('error' in result) && managed(request.sessionId)) {
+    if (active && !('error' in result) && eligible(request.sessionId)) {
       const boundary = ctx.agents.turnBoundaryOf(result.agent.session)
       const recorded = ctx.agentPresets.presetForSession(result.agent.session)
       if (boundary.openTurnStartSeq === null && boundary.lastTurn === 0 && recorded != null) {
@@ -363,7 +364,7 @@ export class HarnessBridge {
 
   /**
    * A native cwd alone does not make an ordinary blank Session usable in the
-   * rc.3 web composer. Register its actual directory and durable membership;
+   * rc.5 web composer. Register its actual directory and durable membership;
    * preserve existing Workspace identity and title rather than inventing a
    * parallel directory or rewriting the Session header.
    */
@@ -464,9 +465,11 @@ export class HarnessBridge {
       const previous = history.fingerprints.get(id) ?? (pending ? fingerprint(pending) : undefined)
       if (previous !== undefined && previous !== expected) throw new Error(`Spirit requestId ${input.requestId} was already admitted with different content or delivery options`)
       await this.authorize('session.post', details, signal)
+      signal.throwIfAborted()
       this.assertLive(agent)
       const duplicate = previous !== undefined
       if (!duplicate) {
+        input.beforeEnqueue?.(agent)
         if (mode === 'context') agent.inject(message)
         else if (mode === 'steer') agent.steer(message)
         else agent.followup(message)
