@@ -294,11 +294,13 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
     expect(f.resolveAgent).not.toHaveBeenCalled()
   })
 
-  it('finds the current owner input through native runtime snapshots and model-switch notices', async () => {
+  it('finds the current owner input through native snapshots, skill catalogs and model-switch notices', async () => {
     const f = fixture()
-    f.page.mockResolvedValueOnce({ cursor: 8, hasMore: true, records: [
+    f.page.mockResolvedValueOnce({ cursor: 10, hasMore: true, records: [
       record(5, 'turn/start', { turn: 2 }), record(6, 'user/message', user('owner-2')),
       record(7, 'user/message', user('runtime', 'runtime-context')), record(8, 'user/message', user('switch', 'model-selection')),
+      record(9, 'user/message', { ...user('catalog'), source: { kind: 'skill-catalog', form: 'catalog' } }),
+      record(10, 'user/message', { ...user('time'), source: { kind: 'time-context', form: 'snapshot' } }),
     ] })
     expect(await f.bridge.latestOwnerRequest('a')).toEqual({ sessionId: 'a', id: 'owner-2', text: 'Owner request' })
     expect(f.resolveAgent).not.toHaveBeenCalled()

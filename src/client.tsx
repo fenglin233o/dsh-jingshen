@@ -1,20 +1,27 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ModelCatalog, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { PropsRuntime, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { NativeInteractions } from './native-interactions.tsx'
+import { SpiritWindow, spiritRequest } from './spirit-ui.tsx'
 import type { PersonalService } from './service.ts'
 import type { Experience, Memory } from './experience.ts'
 import type { ActivationReceipt, ActivationStatus } from './activation.ts'
 import css from './style.css?raw'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface LocaleNamespaceMap { personalSpirit: 'panel' }
+  // This rc.5 Chat slot is present in the official Web bundle. Keeping the
+  // small public contract local avoids making Chat a runtime dependency.
+  interface SlotMap {
+    'conversation.chat.assistant-actions': { kind: 'list'; scope: 'session'; owner: { messageId: MessageId } }
+  }
 }
 
 type PermissionMode = 'full' | 'ask'
@@ -171,7 +178,7 @@ function History({ experience }: { experience?: Experience }) {
   </details>
 }
 
-export function Panel({ openSession }: { openSession: (id: string) => Promise<unknown> }) {
+export function Panel({ openSession, embedded = false }: { openSession: (id: string) => Promise<unknown>; embedded?: boolean }) {
   const [state, setState] = useState<State>(), [readError, setReadError] = useState(''), [actionError, setActionError] = useState('')
   const [selected, setSelected] = useState<string>(), [tab, setTab] = useState<Tab>('activity')
   const [pending, setPending] = useState<string>(), [reloading, setReloading] = useState(false), [notice, setNotice] = useState('')
@@ -244,13 +251,14 @@ export function Panel({ openSession }: { openSession: (id: string) => Promise<un
   const busy = !!pending
   const healthErrors = Object.entries(state?.health ?? {}).filter(([, value]) => value?.state === 'error')
   const decisions = state?.intentions?.filter(item => item.question) ?? []
-  const count: Partial<Record<Tab, number>> = state ? { sessions: state.sessions?.length, tasks: state.tasks.length,
+  const shownSessions = embedded ? state?.sessions?.filter(item => item.id !== state.mainId) : state?.sessions
+  const count: Partial<Record<Tab, number>> = state ? { sessions: shownSessions?.length, tasks: state.tasks.length,
     memory: state.memories.filter(item => ['accepted', 'active'].includes(item.state)).length, changes: state.changes?.length } : {}
 
   return <div className="spirit"><style>{css}</style><div className="spirit-content">
-    <header className="spirit-header"><div><h1>精神</h1><p className="spirit-muted">会话、正在做的事，以及留下的经验。</p></div>
+    <header className="spirit-header">{!embedded && <div><h1>精神</h1><p className="spirit-muted">会话、正在做的事，以及留下的经验。</p></div>}
       <div className="spirit-actions"><button disabled={!state || busy} onClick={() => void exportData()}>导出记录</button>
-        <button className="spirit-primary" disabled={!state || busy} onClick={() => state && void open(state.mainId)}>与精神对话 <SessionArrow /></button></div>
+        {!embedded && <button className="spirit-primary" disabled={!state || busy} onClick={() => state && void open(state.mainId)}>与精神对话 <SessionArrow /></button>}</div>
     </header>
     {readError && <div role="alert" className="spirit-error"><div><strong>{state ? '最新状态读取失败' : '暂时无法读取精神'}</strong><p>{readError}</p>
       {state && <p>下方保留上次读取的记录，运行和权限状态可能已变化。</p>}</div><button disabled={reloading || busy} onClick={() => void retry()}>{reloading ? '正在重试…' : '重试'}</button></div>}
@@ -316,9 +324,9 @@ export function Panel({ openSession }: { openSession: (id: string) => Promise<un
                 {item.sessionId && <button className="spirit-link" disabled={busy} onClick={() => void open(item.sessionId!)}>查看会话</button>}</div></li>)}</ol>
           </section>
         </>}
-        {tab === 'sessions' && <section className="spirit-section"><h2>会话</h2><p className="spirit-muted">在原生会话中查看消息、工具执行和待确认操作。</p>
-          {!state.sessions?.length && <div className="spirit-empty-inline">{state.sessions ? '当前没有已登记的会话。' : '会话列表尚未同步。'}</div>}
-          <div className="spirit-session-list">{state.sessions?.map(item => <article className="spirit-record" key={item.id}><div className="spirit-record-heading"><h3>{item.title || '未命名会话'}</h3>
+        {tab === 'sessions' && <section className="spirit-section"><h2>会话</h2><p className="spirit-muted">其他会话可从记录中的来源打开，主会话的待确认请求在通讯窗处理。</p>
+          {!shownSessions?.length && <div className="spirit-empty-inline">{shownSessions ? '当前没有已登记的会话。' : '会话列表尚未同步。'}</div>}
+          <div className="spirit-session-list">{shownSessions?.map(item => <article className="spirit-record" key={item.id}><div className="spirit-record-heading"><h3>{item.title || '未命名会话'}</h3>
             {item.status && <span className="spirit-tag">{labels[item.status] ?? item.status}</span>}</div>{item.reason && <p className="spirit-prose">{item.reason}</p>}
             <dl className="spirit-meta"><dt>模型</dt><dd>{item.model || '尚未选定'}</dd>{item.effort && <><dt>推理强度</dt><dd>{item.effort}</dd></>}</dl>
             <button disabled={busy} onClick={() => void open(item.id)}>打开会话 <SessionArrow /></button></article>)}</div>
@@ -366,19 +374,194 @@ export function Panel({ openSession }: { openSession: (id: string) => Promise<un
 }
 
 type ClientContext = Context & { sessions: ISessions }
-export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
+function modelCatalog(ctx: ClientContext): Promise<RemoteResult<ModelCatalog>> {
+  // The official Web profile supplies this composition-dependent namespace.
+  return (ctx.remote as unknown as { session: { modelCatalog(): Promise<RemoteResult<ModelCatalog>> } }).session.modelCatalog()
+}
+
+const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
+function SpiritModels({ ctx }: { ctx: ClientContext }) {
+  const [catalog, setCatalog] = useState<ModelCatalog>()
+  const [current, setCurrent] = useState<ModelSelection>()
+  const [draft, setDraft] = useState<ModelSelection>()
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [reload, setReload] = useState(0)
+  const selection = draft ?? current ?? catalog?.default
+  const option = catalog?.groups.find(group => group.id === selection?.provider)?.models.find(model => model.id === selection?.model)
+  useEffect(() => {
+    const controller = new AbortController()
+    setError('')
+    void Promise.all([
+      Promise.resolve().then(() => modelCatalog(ctx)),
+      spiritRequest<{ selected: ModelSelection | null }>('model', undefined, controller.signal),
+    ]).then(([catalogResult, selectionResult]) => {
+      if (controller.signal.aborted) return
+      if (!catalogResult.ok) throw new Error(catalogResult.error.message)
+      setCatalog(catalogResult.value)
+      setCurrent(selectionResult.selected ?? undefined)
+    }).catch(reason => { if (!controller.signal.aborted) setError(message(reason)) })
+    return () => controller.abort()
+  }, [ctx, reload])
+  const apply = async () => {
+    if (!draft || saving) return
+    setSaving(true); setSaved(''); setError('')
+    try {
+      const result = await spiritRequest<{ selected: ModelSelection }>('model', draft)
+      if (!result.selected) throw new Error('宿主尚未确认模型选择。')
+      setCurrent(result.selected)
+      setDraft(undefined)
+      setSaved('已更新主会话模型。')
+    } catch (reason) { setError(message(reason)) }
+    finally { setSaving(false) }
+  }
+  return <form className="jingshen-model-form" onSubmit={event => { event.preventDefault(); void apply() }}>
+    {error && <p role="alert">{error}</p>}
+    {saved && <p role="status">{saved}</p>}
+    {!catalog ? <>
+      {!error && <p role="status">正在读取 Harness 的模型目录…</p>}
+      {error && <button type="button" onClick={() => setReload(value => value + 1)}>重新读取模型</button>}
+    </> : catalog.groups.length === 0 ? <>
+      <p>当前没有可用模型。请先在 Harness 的模型或账户设置中配置。</p>
+      <button type="button" onClick={() => setReload(value => value + 1)}>重新读取模型</button>
+    </> : <>
+      <label>模型
+        <select aria-label="模型" value={selection ? modelKey(selection.provider, selection.model) : ''} disabled={saving}
+          onChange={event => {
+            const [provider, model] = JSON.parse(event.target.value) as [string, string]
+            setDraft({ provider, model }); setSaved('')
+          }}>
+          {selection && !option && <option value={modelKey(selection.provider, selection.model)} disabled>{selection.model}（当前不可用）</option>}
+          {catalog.groups.map(group => <optgroup key={group.id} label={group.name}>{group.models.map(model =>
+            <option key={model.id} value={modelKey(group.id, model.id)}>{model.name}</option>)}</optgroup>)}
+        </select>
+      </label>
+      {selection && !!option?.reasoning?.efforts.length && <label>推理等级
+        <select aria-label="推理等级" value={selection.reasoningEffort ?? ''} disabled={saving}
+          onChange={event => {
+            setDraft({ provider: selection.provider, model: selection.model,
+              ...(event.target.value ? { reasoningEffort: event.target.value } : {}) })
+            setSaved('')
+          }}>
+          <option value="">模型默认</option>
+          {option.reasoning.efforts.map(effort => <option value={effort.id} key={effort.id}>{effort.name}</option>)}
+        </select>
+      </label>}
+      <button type="submit" disabled={saving || !draft || !option}>{saving ? '正在应用…' : '应用模型'}</button>
+    </>}
+  </form>
+}
+
+type MediationReceipt = { sessionId: string; messageId?: string; source: string; disposition: string }
+type AssistantSourceProps = PropsRuntime<'conversation.chat.assistant-actions'> & { messageId: MessageId; sessionId?: SessionId }
+
+function AssistantSource({ sessionId, messageId }: AssistantSourceProps) {
+  const [published, setPublished] = useState<{ sessionId: SessionId; messageId: MessageId }>()
+  useEffect(() => {
+    if (!sessionId) return
+    const controller = new AbortController()
+    const query = new URLSearchParams({ sessionId, messageId })
+    void spiritRequest<{ records: MediationReceipt[] }>(`mediation?${query}`, undefined, controller.signal).then(result => {
+      if (controller.signal.aborted || !Array.isArray(result.records)) return
+      if (result.records.some(row => row.sessionId === sessionId && row.messageId === messageId
+        && row.source === 'spirit' && (row.disposition === 'speak' || row.disposition === 'continue'))) setPublished({ sessionId, messageId })
+    }).catch(() => { /* Rows with no verified receipt keep their native presentation. */ })
+    return () => controller.abort()
+  }, [sessionId, messageId])
+  return published?.sessionId === sessionId && published?.messageId === messageId
+    ? <span className="jingshen-mediation-badge" data-message-id={messageId} title="来自这个会话中精神的实际发布">精神</span> : null
+}
+
+const privateMainPanel = 'dsh-jingshen.private-main' as MainPanelId
+const privateIdentityStorage = 'dsh-jingshen.main-session'
+function cachedMainId(): string | undefined {
+  try { return sessionStorage.getItem(privateIdentityStorage) ?? undefined } catch { return undefined }
+}
+
+type WorkspaceRows = { items: readonly { workspaceId: string; path: string; sessionIds: readonly string[] }[] }
+type SpiritOverlayProps = PropsRuntime<'shell.overlay'> & {
+  ctx: ClientContext
+  useWorkspaces: SnapshotSelectorHook<WorkspaceRows>
+}
+function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
+  const [mainId, setMainId] = useState(cachedMainId)
+  const acceptMainId = useCallback((id: string) => {
+    try { sessionStorage.setItem(privateIdentityStorage, id) } catch { /* The current connection still knows its identity. */ }
+    setMainId(id)
+  }, [])
+  const [openSignal, setOpenSignal] = useState(0)
+  const workspaces: WorkspaceRows['items'] = useWorkspaces((snapshot: WorkspaceRows) => snapshot.items)
+  const subscribeSessions = useCallback((listener: () => void) => ctx.sessions.list.subscribe(listener), [ctx])
+  const mainPath = useCallback(() => mainId ? ctx.sessions.list.getSnapshot().byId[mainId as SessionId]?.cwd as string | undefined : undefined,
+    [ctx, mainId])
+  const privatePath = useSyncExternalStore(subscribeSessions, mainPath, mainPath)
+  const hasUngrouped = useCallback(() => ctx.sessions.list.getSnapshot().ids.some((id: SessionId) =>
+    id !== mainId && !workspaces.some(workspace => workspace.sessionIds.includes(id))), [ctx, mainId, workspaces])
+  const showUngrouped = useSyncExternalStore(subscribeSessions, hasUngrouped, hasUngrouped)
+  const hiddenWorkspaces = privatePath ? workspaces.filter(item =>
+    item.path === privatePath && item.sessionIds.every(sessionId => sessionId === mainId)) : []
+
+  useLayoutEffect(() => {
+    if (!mainId) return
+    const references = ctx.sessions.retainInfo(mainId as SessionId)
+    const panels = ctx.layout.panelInfo
+    let stopped = false
+    let queued = false
+    const reconcile = () => {
+      queued = false
+      if (stopped) return
+      const active = panels.getSnapshot().activePanelId
+      const nativeView = !!(references.getSnapshot().retainedBy as Readonly<Record<string, number | undefined>>).mainView
+      if (nativeView && active === null) {
+        // The private session has no native Workspace membership for default
+        // startup. This covers explicit opens and the old persisted selection.
+        ctx.layout.selectPanel(privateMainPanel)
+        setOpenSignal(value => value + 1)
+      } else if (!nativeView && active === privateMainPanel) ctx.layout.selectPanel(null)
+    }
+    const schedule = () => {
+      if (!queued) { queued = true; queueMicrotask(reconcile) }
+    }
+    const disposeReferences = references.subscribe(schedule)
+    const disposePanels = panels.subscribe(schedule)
+    schedule()
+    return () => { stopped = true; disposeReferences(); disposePanels() }
+  }, [ctx, mainId])
+
+  const openSession = async (id: string) => {
+    const target = id as SessionId
+    if (ctx.sessions.list.getSnapshot().phase !== 'ready' || !ctx.sessions.list.getSnapshot().byId[target]) await ctx.sessions.refresh()
+    const list = ctx.sessions.list.getSnapshot()
+    if (list.phase !== 'ready') throw new Error('会话列表尚未就绪，请稍后重试。')
+    if (!list.byId[target]) throw new Error('未在 Harness 中找到这个会话，请刷新后重试。')
+    ctx.uiWorkspace.openSession(target)
+  }
+  // RC.5 exports a public overlay/nav seat but no filtered Workspace-tree
+  // adapter. These exact native row keys also cover search and flat rows.
+  const hidden = mainId && [
+    `[data-row-key="${CSS.escape(`session:${mainId}`)}"]`,
+    ...(!showUngrouped ? ['[data-row-key="workspace:"]'] : []),
+    ...hiddenWorkspaces.map(item => `[data-row-key="${CSS.escape(`workspace:${item.workspaceId}`)}"]`),
+    `[data-phase]:has(> [data-conversation-session="${CSS.escape(mainId)}"])`,
+  ].join(',')
+  return <>
+    {hidden && <style>{`${hidden}{display:none!important}`}</style>}
+    <SpiritWindow
+      renderManagement={openNative => <Panel embedded openSession={openNative} />}
+      renderModels={() => <SpiritModels ctx={ctx} />}
+      renderNativeInteractions={(sessionId, onPendingChange) =>
+        <NativeInteractions ctx={ctx} sessionId={sessionId as SessionId} onPendingChange={onPendingChange} />}
+      openSource={openSession} onMainId={acceptMainId} openSignal={openSignal} />
+  </>
+}
+
+export const inject = ['slots', 'sessions', 'layout', 'uiWorkspace', 'uiSession', 'remote', 'remote.session']
 export function apply(ctx: ClientContext): void {
-  const panelId = 'dsh-spirit' as MainPanelId
-  ctx.effect(() => ctx.locale.register('personalSpirit', { zh: { panel: '精神' }, en: { panel: '精神' } }))
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: panelId, locale: 'personalSpirit', inject: () => ({}) },
-    () => <Panel openSession={async id => {
-      const target = id as SessionId
-      if (ctx.sessions.list.getSnapshot().phase !== 'ready' || !ctx.sessions.list.getSnapshot().byId[target]) await ctx.sessions.refresh()
-      const list = ctx.sessions.list.getSnapshot()
-      if (list.phase !== 'ready') throw new Error('会话列表尚未就绪，请稍后重试。')
-      if (!list.byId[target]) throw new Error('未在 Harness 中找到这个会话，请刷新后重试。')
-      ctx.uiWorkspace.openSession(target)
-    }} />))
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: panelId, order: 9, locale: 'personalSpirit', label: () => '精神' },
-    ({ size }: { size: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9M12 3v6a3 3 0 1 0 3 3h6M12 9l6-6M18 3h3v3" /></svg>))
+  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: privateMainPanel }, () => null))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'dsh-jingshen' },
+    props => <SpiritOverlay {...props} ctx={ctx} />))
+  ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
+    name: 'conversation.chat.assistant-actions', id: 'dsh-jingshen.source', order: -100,
+  }, AssistantSource))
 }

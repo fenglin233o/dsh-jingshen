@@ -46,7 +46,8 @@ it('links exact native turns while keeping only visible excerpts and preserving 
       event('user/message', 5, { id: 'owner', source: { kind: 'user' }, content: [{ type: 'text', text: '本人的原话'.repeat(1000) }] }),
       event('assistant/attempt', 6, { stream: [{ type: 'reasoning', text: 'PRIVATE-ATTEMPT' }] }),
       event('assistant/message', 7, { turn: 2, step: 1, stream: [{ type: 'reasoning', text: 'PRIVATE-STREAM' }],
-        message: { content: [{ type: 'thinking', text: 'PRIVATE-REASONING' }, { type: 'text', text: '公开回答与分歧' }] } }),
+        message: { source: { kind: 'model', provider: 'real-model-provider', model: 'real-model', replayState: 'PRIVATE-REPLAY' },
+          content: [{ type: 'thinking', text: 'PRIVATE-REASONING' }, { type: 'text', text: '公开回答与分歧' }] } }),
       event('tool/call', 8, { turn: 2, step: 1, callId: 'turn-call', name: 'spirit_orient', arguments: '{"reason":"公开理由"}' }),
       event('tool/result', 9, { turn: 2, step: 1, meta: 'PRIVATE-META', message: { toolCallId: 'turn-call', content: [{ type: 'text', text: '已生效' }] } }),
       event('turn/end', 10, { turn: 2, reason: { kind: 'completed' } })]

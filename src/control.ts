@@ -10,7 +10,10 @@ export interface OwnerControl {
   changedAt: string
   reason: string
 }
-export interface ManagedSession { id: string; title: string; reason: string; createdAt: string; previousPermission?: string; kind: 'main' | 'task' | 'initiative' | 'conversation' }
+export interface ManagedSession {
+  id: string; title: string; reason: string; createdAt: string; previousPermission?: string; nativePermissions?: true;
+  kind: 'main' | 'task' | 'initiative' | 'conversation'
+}
 export interface Activity { id: string; at: string; kind: string; summary: string; reason?: string; sessionId?: string }
 const stamp = () => new Date().toISOString()
 
@@ -47,8 +50,19 @@ export class SpiritControl {
   }
   manage(id: string, title: string, reason: string, kind: ManagedSession['kind'], previousPermission?: string): void {
     const previous = this.session(id)
-    const value: ManagedSession = { id, title, reason, kind, ...(kind === 'conversation' ? { previousPermission: previousPermission ?? previous?.previousPermission } : {}), createdAt: previous?.createdAt ?? stamp() }
-    this.store.db.prepare('INSERT INTO spirit_sessions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(id, JSON.stringify(value))
+    const value: ManagedSession = { id, title, reason, kind, createdAt: previous?.createdAt ?? stamp(),
+      ...(kind === 'conversation' ? previous?.nativePermissions ? { nativePermissions: true } : { previousPermission: previousPermission ?? previous?.previousPermission } : {}) }
+    this.saveSession(value)
+  }
+  keepNativePermissions(id: string): void {
+    const value = this.session(id)
+    if (value?.kind !== 'conversation' || value.nativePermissions) return
+    delete value.previousPermission
+    value.nativePermissions = true
+    this.saveSession(value)
+  }
+  private saveSession(value: ManagedSession): void {
+    this.store.db.prepare('INSERT INTO spirit_sessions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(value.id, JSON.stringify(value))
   }
   sessions(): ManagedSession[] {
     return this.store.db.prepare('SELECT value FROM spirit_sessions ORDER BY rowid').all().map(row => JSON.parse(String(row.value)) as ManagedSession)

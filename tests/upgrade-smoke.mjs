@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * Run an in-place profile upgrade against two locally installed Harness runtimes.
+ * Run an in-place 0.2.0 or 0.3.0 profile upgrade to 0.4.0 using locally installed Harness.
  * node tests/upgrade-smoke.mjs --old-runtime DIR --old-package DIR --new-runtime DIR [--new-package DIR] [--scratch NEW_DIR]
  * The package directories need built lib/ files. The current checkout needs installed dependencies.
  */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import * as runtimeFixture from './runtime-smoke.mjs'
 
 const file = fileURLToPath(import.meta.url)
 const repo = fileURLToPath(new URL('..', import.meta.url))
-const fixture = fileURLToPath(new URL('./runtime-smoke.mjs', import.meta.url))
 const provider = 'spirit-fixture'
 const packageName = 'dsh-jingshen'
 
@@ -26,6 +26,8 @@ export const inject = [...runtimeFixture.inject, 'pluginManager']
 export async function apply(ctx) {
   const token = process.env.SPIRIT_TEST_TOKEN
   assert(token && ctx.webServer.host === '127.0.0.1', 'Only the isolated loopback test host can load the upgrade fixture')
+  const requireRuntime = createRequire(join(process.env.SPIRIT_TEST_RUNTIME, 'package.json'))
+  const { createUserMessage } = await import(pathToFileURL(requireRuntime.resolve('@deepseek-ai/dsh-llm')).href)
   const steps = []
   ctx.on('agent/pre-step', async ({ agent, messages }, next) => {
     const decision = await next()
@@ -40,9 +42,34 @@ export async function apply(ctx) {
       || req.headers.host !== new URL(ctx.webServer.getOrigin()).host) {
       res.writeHead(403).end(); return
     }
-    const plugins = await ctx.pluginManager.listPlugins()
-    const { presets } = await ctx.agentPresets.remoteExportList()
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ plugins, presets, steps }))
+    try {
+      let result
+      if (req.method === 'POST') {
+        let body = ''
+        for await (const chunk of req) {
+          body += chunk
+          assert(body.length <= 4096)
+        }
+        const { sessionId, text } = JSON.parse(body)
+        assert(typeof sessionId === 'string' && typeof text === 'string' && text.trim())
+        const resolved = await ctx.sessionController.resolveAgent(sessionId)
+        assert(!('error' in resolved), JSON.stringify(resolved.error))
+        const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
+        resolved.agent.followup(message)
+        await resolved.agent.whenIdle()
+        await ctx.sessionPersistence.flush()
+        result = { messageId: message.id }
+      } else if (req.method === 'GET') {
+        const plugins = await ctx.pluginManager.listPlugins()
+        const { presets } = await ctx.agentPresets.remoteExportList()
+        result = { plugins, presets, steps }
+      } else {
+        res.writeHead(405).end(); return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
+    } catch (error) {
+      res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: String(error) }))
+    }
   } })
   await runtimeFixture.apply(ctx)
 }
@@ -63,8 +90,11 @@ async function main() {
     return { packageRoot, runtime, packageVersion, harnessVersion,
       sha256: createHash('sha256').update(readFileSync(join(packageRoot, 'lib/index.js'))).digest('hex') }
   }
-  const oldRelease = release(args.get('--old-package'), args.get('--old-runtime'), '0.2.0', '0.2.2-rc.3')
-  const newRelease = release(args.get('--new-package') ?? repo, args.get('--new-runtime'), '0.3.0', '0.2.2-rc.5')
+  const oldPackage = args.get('--old-package'), oldVersion = readJson(join(oldPackage, 'package.json')).version
+  const oldHarness = new Map([['0.2.0', '0.2.2-rc.3'], ['0.3.0', '0.2.2-rc.5']]).get(oldVersion)
+  assert(oldHarness, `Unsupported source version: ${oldVersion}`)
+  const oldRelease = release(oldPackage, args.get('--old-runtime'), oldVersion, oldHarness)
+  const newRelease = release(args.get('--new-package') ?? repo, args.get('--new-runtime'), '0.4.0', '0.2.2-rc.5')
   const scratch = args.has('--scratch') ? args.get('--scratch') : mkdtempSync(join(tmpdir(), 'spirit-upgrade-'))
   if (args.has('--scratch')) mkdirSync(scratch, { mode: 0o700 })
   const home = join(scratch, 'home'), state = join(scratch, 'state'), address = join(scratch, 'address.json')
@@ -93,13 +123,16 @@ async function main() {
     assert(response.ok, `${route} returned ${response.status}: ${JSON.stringify(value)}`)
     return value
   }
-  async function inventory() {
+  async function upgradeFixture(data) {
     const response = await fetch(`${origin}/__spirit-upgrade`, {
+      method: data ? 'POST' : 'GET', body: data && JSON.stringify(data),
       signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${token}` },
     })
-    assert(response.ok)
-    return response.json()
+    const result = await response.json()
+    assert(response.ok, JSON.stringify(result))
+    return result
   }
+  const inventory = () => upgradeFixture()
   const panel = (route = '/state', data) => request(route, data, false)
   const inspect = id => request(`/inspect?sessionId=${encodeURIComponent(id)}`)
   const trace = () => request('/trace')
@@ -143,9 +176,11 @@ async function main() {
       for (const entry of ['package.json', 'cordis.patch.yml', 'lib', 'upstream', 'marketplace/locale']) {
         cpSync(join(build.packageRoot, entry), join(snapshot, entry), { recursive: true })
       }
+      if (existsSync(join(build.packageRoot, 'media/fish'))) cpSync(join(build.packageRoot, 'media/fish'), join(snapshot, 'media/fish'), { recursive: true })
       mkdirSync(join(snapshot, 'tests'))
-      cpSync(file, join(snapshot, 'tests/upgrade-smoke.mjs'))
-      cpSync(fixture, join(snapshot, 'tests/runtime-smoke.mjs'))
+      for (const entry of readdirSync(dirname(file)).filter(name => name.endsWith('.mjs'))) {
+        cpSync(join(dirname(file), entry), join(snapshot, 'tests', entry))
+      }
       symlinkSync(join(build.runtime, 'node_modules/@deepseek-ai'), join(snapshot, 'node_modules/@deepseek-ai'), 'dir')
       for (const dependency of ['zod', 'proper-lockfile']) symlinkSync(join(repo, 'node_modules', dependency), join(snapshot, 'node_modules', dependency), 'dir')
     }
@@ -182,6 +217,7 @@ async function main() {
   }
 
   const legacyPreset = 'dsh-personal-spirit'
+  const sourcePreset = oldVersion === '0.2.0' ? legacyPreset : 'dsh-spirit'
   const waiting = (statement, wait) => ({ statement, reason: 'Test the persistence of an explicit unfinished intention', state: 'waiting',
     revisit: { at: new Date(Date.now() + wait).toISOString() } })
   const sensitiveCall = title => ({ action: 'create', title, cwd: join(scratch, title), reason: 'Exercise the actual native approval path' })
@@ -191,19 +227,41 @@ async function main() {
     const initial = await boot(oldRelease), mainId = initial.mainId
     const mainWorkspace = (await request('/workspaces')).find(workspace => workspace.sessionIds.includes(mainId))
     assert(mainWorkspace)
-    const legacyMain = await request('/native-create', { sessionId: mainId, workspaceId: mainWorkspace.id, agentPreset: legacyPreset })
-    assert.equal(legacyMain.agentPreset, legacyPreset)
+    const legacyMain = await request('/native-create', { sessionId: mainId, workspaceId: mainWorkspace.id, agentPreset: sourcePreset })
+    assert.equal(legacyMain.agentPreset, sourcePreset)
     const seeded = await runTool(mainId, 'spirit_read', {})
-    assert.equal((await inspect(mainId)).preset, legacyPreset)
+    assert.equal((await inspect(mainId)).preset, sourcePreset)
     const oldInventory = await inventory()
-    assert(oldInventory.presets.some(value => value.id === legacyPreset))
-    assert.equal(oldInventory.steps.find(step => step.messageIds.includes(seeded.messageId))?.preset, legacyPreset)
-    const archivedConversation = await request('/native-create', { workspaceId: mainWorkspace.id, agentPreset: legacyPreset })
+    assert(oldInventory.presets.some(value => value.id === sourcePreset))
+    assert.equal(oldInventory.steps.find(step => step.messageIds.includes(seeded.messageId))?.preset, sourcePreset)
+    const projectWorkspace = await request('/project-workspace', {})
+    assert(projectWorkspace.id && projectWorkspace.path)
+    const archivedConversation = await request('/native-create', { workspaceId: projectWorkspace.id, agentPreset: sourcePreset })
+    const standardProjectSession = await request('/native-create', { workspaceId: projectWorkspace.id, agentPreset: 'standard' })
     const legacyId = archivedConversation.sessionId
+    const projectMembers = [legacyId, standardProjectSession.sessionId].sort()
+    const checkProject = async expectedMainVisible => {
+      const workspaces = await request('/workspaces')
+      const preserved = byId(workspaces, projectWorkspace.id)
+      assert.equal(preserved.path, projectWorkspace.path)
+      assert.deepEqual([...preserved.sessionIds].sort(), projectMembers)
+      assert.equal(workspaces.some(workspace => workspace.sessionIds.includes(mainId)), expectedMainVisible)
+    }
+    await checkProject(true)
     const archived = await request('/turn', { sessionId: legacyId, script: { id: randomUUID(), calls: [] } })
     const archivedMessage = archived.events.find(event => event.type === 'user/message' && event.data.id === archived.messageId)
     assert(archivedMessage)
-    assert.equal(archived.preset, legacyPreset)
+    assert.equal(archived.preset, sourcePreset)
+    const ownerText = `Existing owner message from Spirit ${oldVersion}, preserved as literal chat history.`
+    const { messageId: oldOwnerId } = await upgradeFixture({ sessionId: mainId, text: ownerText })
+    const oldChatLog = await inspect(mainId)
+    const oldOwner = oldChatLog.events.find(event => event.type === 'user/message' && event.data.id === oldOwnerId)
+    assert(oldOwner)
+    const oldAnswer = oldChatLog.events.find(event => event.type === 'assistant/message' && event.seq > oldOwner.seq)
+    assert(oldAnswer?.data.message.content.some(block => block.type === 'text' && block.text))
+    const oldOrientation = oldVersion === '0.3.0'
+      ? (await runTool(mainId, 'spirit_orient', { expectedRevision: 0, outlook: 'Keep the owner conversation intact', reason: 'Durable 0.3 orientation', attention: 'quiet' })).value
+      : undefined
     await panel('/permissions', { mode: 'full' })
     assert.equal(nativePermission(await inspect(mainId)), 'danger-full-access')
     await panel('/permissions', { mode: 'ask' })
@@ -244,7 +302,9 @@ async function main() {
     const upgraded = await boot(newRelease), upgradedMain = await inspect(mainId)
     assert.equal(upgraded.mainId, mainId)
     assert.deepEqual(upgradedMain.model, oldMain.model)
-    assert((await request('/workspaces')).some(workspace => workspace.id === mainWorkspace.id && workspace.sessionIds.includes(mainId)))
+    assert.equal(upgradedMain.header.cwd, oldMain.header.cwd)
+    await checkProject(false)
+    assert.equal((await inspect(standardProjectSession.sessionId)).preset, 'standard')
     assert.deepEqual(upgradedMain.events.find(event => event.type === 'user/message' && event.data.id === seeded.messageId),
       oldMain.events.find(event => event.type === 'user/message' && event.data.id === seeded.messageId))
     const roster = (await request(`/roster?sessionId=${encodeURIComponent(mainId)}`)).tools
@@ -273,8 +333,11 @@ async function main() {
     const conversationStep = (await inventory()).steps.find(step => step.sessionId === legacyId)
     assert(conversationStep?.messageIds.includes(conversationTurn.messageId))
     assert.equal(conversationStep.preset, 'dsh-spirit')
-    record('the started legacy sessions use the only Spirit preset on their first upgraded model requests', {
-      mainId, legacyConversationId: legacyId, workspaceId: mainWorkspace.id, preset: upgradedMain.preset, spiritPresets, spiritPlugins, spiritPresetPlugins,
+    if (oldOrientation) assert.deepEqual(upgraded.orientation, oldOrientation)
+    record('existing sessions keep their working directories and their first upgraded model requests use the only Spirit preset', {
+      mainId, mainCwd: upgradedMain.header.cwd, mainExposedAsWorkspaceMember: false, legacyConversationId: legacyId,
+      sourcePreset, preservedProjectWorkspaceId: projectWorkspace.id, preservedProjectMembers: projectMembers, preset: upgradedMain.preset,
+      spiritPresets, spiritPlugins, spiritPresetPlugins, ...(oldOrientation ? { orientationRevision: oldOrientation.revision } : {}),
     })
 
     assert.equal(upgraded.permissions.revision, before.permissions.revision)
@@ -325,20 +388,69 @@ async function main() {
     assert.equal(byId((await panel()).intentions, pending.id).state, 'waiting')
     record('explicit recovery uses a fresh native dispatch and the stored revisit executes once', { opportunityId: prior.id, recoveryDispatchId: recovered.dispatchId, revisitDispatchId: reawakened.dispatchId })
 
+    const history = await panel('/chat?after=0&limit=100')
+    assert.equal(history.mainId, mainId)
+    const oldUserChat = history.messages.find(message => message.source.messageId === oldOwnerId)
+    const oldAgentChat = history.messages.find(message => message.source.messageId === oldAnswer.data.message.id)
+    assert.deepEqual([oldUserChat?.author, oldUserChat?.text, oldUserChat?.source.seq], ['owner', ownerText, oldOwner.seq])
+    assert.deepEqual([oldAgentChat?.author, oldAgentChat?.text, oldAgentChat?.source.seq], ['spirit',
+      oldAnswer.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), oldAnswer.seq])
+    assert(oldUserChat.cursor < oldAgentChat.cursor)
+    const suppressedSource = dispatchMessages(oldMain, prior.dispatchId)[0].data.id
+    assert(!history.messages.some(message => message.source.messageId === suppressedSource))
+    const firstPage = await panel('/chat?after=0&limit=1')
+    assert.equal(firstPage.cursor, history.messages[0].cursor)
+    assert(firstPage.hasMore)
+    assert.deepEqual((await panel(`/chat?after=${firstPage.cursor}&limit=100`)).messages, history.messages.slice(1))
+
+    const continuedText = { requestId: randomUUID(), text: 'A new owner reply in the same upgraded chat.' }
+    const posted = await panel('/chat', continuedText)
+    assert(posted.accepted && posted.requestId === continuedText.requestId)
+    assert.deepEqual(await panel('/chat', continuedText), posted)
+    const continued = await poll(async () => {
+      const next = await panel(`/chat?after=${history.cursor}`)
+      const owner = next.messages.filter(message => message.source.messageId === posted.messageId)
+      if (owner.length !== 1) return
+      const spirit = next.messages.find(message => message.author === 'spirit' && message.cursor > owner[0].cursor)
+      return spirit && { owner: owner[0], spirit, cursor: next.cursor }
+    }, 'continued native reply in the upgraded IM')
+    assert.equal(continued.owner.text, continuedText.text)
+    assert.equal(continued.owner.source.sessionId, mainId)
+    assert.equal(continued.spirit.source.sessionId, mainId)
+    const continuedLog = await inspect(mainId)
+    const newOwnerEvents = continuedLog.events.filter(event => event.type === 'user/message' && event.data.id === posted.messageId)
+    assert.equal(newOwnerEvents.length, 1)
+    const ownerTurn = continuedLog.events.findLast(event => event.type === 'turn/start' && event.seq < newOwnerEvents[0].seq)
+    const nativeAnswer = continuedLog.events.find(event => event.type === 'assistant/message' && event.data.message.id === continued.spirit.source.messageId)
+    assert(nativeAnswer && ownerTurn)
+    assert.equal(nativeAnswer.data.turn, ownerTurn.data.turn)
+    record('old owner text and assistant reply enter the new chat once, with a live continuation in the same native history', {
+      oldOwnerId, oldAssistantId: oldAgentChat.source.messageId, oldOwnerCursor: oldUserChat.cursor,
+      oldAssistantCursor: oldAgentChat.cursor, lastCursor: continued.cursor, newOwnerId: posted.messageId, hiddenDispatchMessageId: suppressedSource,
+    })
+
     await stop()
     const restarted = await boot(newRelease)
     assert.equal(restarted.mainId, mainId)
+    await checkProject(false)
     for (const [sessionId, previous] of [[mainId, oldMain], [legacyId, archived]]) {
       const log = await inspect(sessionId)
       assert.equal(log.preset, 'dsh-spirit')
+      assert.equal(log.header.cwd, previous.header.cwd)
       const migrated = log.events.filter(event => event.seq > previous.events.at(-1).seq && event.type === 'agent-preset/selected')
-      assert.deepEqual(migrated.map(event => event.data.agentPreset), ['dsh-spirit'])
+      assert.deepEqual(migrated.map(event => event.data.agentPreset), sourcePreset === legacyPreset ? ['dsh-spirit'] : [])
     }
-    record('the migrated preset selection persists through a subsequent rc.5 restart', { mainId, legacyConversationId: legacyId })
+    const restartedChat = await panel('/chat?after=0&limit=100')
+    assert.deepEqual(restartedChat.messages.filter(message => message.cursor <= history.cursor), history.messages)
+    assert.equal(restartedChat.messages.filter(message => message.source.messageId === posted.messageId).length, 1)
+    assert.deepEqual(restartedChat.messages.find(message => message.cursor === continued.spirit.cursor), continued.spirit)
+    record('preset selection and chat identity persist through a subsequent rc.5 restart', {
+      mainId, legacyConversationId: legacyId, preservedChatCursor: restartedChat.cursor,
+    })
 
     const full = await panel('/permissions', { mode: 'full' })
     assert.equal(full.permissions.status, 'applied')
-    const { sessionId: fullConversationId } = await request('/native-create', { workspaceId: mainWorkspace.id })
+    const { sessionId: fullConversationId } = await request('/native-create', { workspaceId: projectWorkspace.id })
     const fullConversation = await inspect(fullConversationId)
     assert.equal(fullConversation.preset, 'dsh-spirit')
     assert.equal(nativePermission(fullConversation), 'danger-full-access')
@@ -372,8 +484,8 @@ async function main() {
     throw error
   } finally {
     try { await stop() } finally {
-      writeFileSync(join(scratch, 'report.json'), JSON.stringify(report, null, 2))
-      console.log(`Evidence: ${join(scratch, 'report.json')}`)
+      writeFileSync(join(scratch, 'evidence.json'), JSON.stringify(report, null, 2))
+      console.log(`Evidence: ${join(scratch, 'evidence.json')}`)
     }
   }
 }

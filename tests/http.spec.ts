@@ -18,6 +18,11 @@ async function fixture() {
     snapshot: vi.fn(() => ({ control: control.current(), ...service.snapshot() })),
     permissions: vi.fn(async (mode: AccessMode) => control.select({ mode }, '本人通过面板选择权限')),
     control: vi.fn(async action => ({ receivedAction: action })),
+    chat: vi.fn(input => ({ input, messages: [], cursor: input.after ?? 0 })),
+    selectModel: vi.fn(async input => input),
+    currentModel: vi.fn(() => null),
+    postChat: vi.fn(async input => ({ accepted: true, requestId: input.requestId, messageId: `owner:${input.requestId}` })),
+    mediation: vi.fn((sessionId, messageId) => ({ records: messageId === 'linked' ? [{ sessionId, messageId, disposition: 'speak' }] : [] })),
   }
   let handler!: (req: IncomingMessage, res: ServerResponse) => Promise<void>
   const server = createServer((req, res) => { void handler(req, res).catch(error => { res.writeHead(500); res.end(String(error)) }) })
@@ -117,6 +122,30 @@ describe('actual local HTTP owner controls', () => {
     expect((await f.send('/control', { method: 'POST', body: { action: 'set', revision: 1 } })).status).toBe(400)
     expect((await f.send('/control', { method: 'GET' })).status).toBe(404)
     expect(vi.mocked(f.runtime.control).mock.calls).toHaveLength(4)
+  })
+
+  it('selects the main session model without accepting a different target or a global setting', async () => {
+    const { send, runtime } = await fixture()
+    const choice = { provider: 'local', model: 'chinese', reasoningEffort: 'low' }
+    expect(await send('/model')).toMatchObject({ status: 200, json: { selected: null } })
+    expect(await send('/model', { method: 'POST', body: choice })).toMatchObject({ status: 200, json: { selected: choice } })
+    expect(await send('/model', { method: 'POST', body: { ...choice, sessionId: 'outside' } })).toMatchObject({ status: 400 })
+    expect(runtime.selectModel).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes only owner-authored public chat input and validates independent pagination and mediation identifiers', async () => {
+    const f = await fixture()
+    expect((await f.send('/chat?after=42&limit=15')).json).toMatchObject({ input: { after: 42, limit: 15 }, cursor: 42 })
+    expect((await f.send('/chat?before=42&limit=15')).json).toMatchObject({ input: { before: 42, limit: 15 } })
+    for (const query of ['?after=1&before=2', '?after=-1', '?limit=1000']) expect((await f.send(`/chat${query}`)).status).toBe(400)
+    const input = { requestId: 'entry-1', text: ' 本人的文字 ' }
+    expect(await f.send('/chat', { method: 'POST', body: input })).toMatchObject({ status: 202, json: { accepted: true, messageId: 'owner:entry-1' } })
+    expect(f.runtime.postChat).toHaveBeenCalledExactlyOnceWith(input)
+    expect((await f.send('/chat', { method: 'POST', body: { ...input, author: 'spirit' } })).status).toBe(400)
+    expect((await f.send('/chat', { method: 'POST', body: input, headers: { origin: 'null' } })).status).toBe(403)
+    expect((await f.send('/mediation?sessionId=spirit-main')).status).toBe(400)
+    expect((await f.send('/mediation?sessionId=spirit-main&messageId=unknown')).json.records).toEqual([])
+    expect((await f.send('/mediation?sessionId=spirit-main&messageId=linked')).json.records).toEqual([{ sessionId: 'spirit-main', messageId: 'linked', disposition: 'speak' }])
   })
 
   it('owner memory correction creates an explicit replacement while preserving the prior model provenance', async () => {

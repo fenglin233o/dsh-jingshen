@@ -1,6 +1,6 @@
 # 实现与验证记录
 
-本包为 `dsh-jingshen` 0.3.0，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
+本包为 `dsh-jingshen` 0.4.0，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
 
 ## SuperAgent 基底与改造范围
 
@@ -18,7 +18,10 @@
 | `control.ts`、`index.ts` | 本人控制、真实权限预设、原生工具注册、撤销与并发控制 |
 | `self-change.ts` | 候选源码、检查点、真实命令验证、应用与回退 |
 | `activation.ts`、`scripts/run.mjs` | 独立监督进程、明确的激活请求、加载回执与失败记录 |
-| `client.tsx`、`http.ts` | Harness 原生侧栏面板、控制、可查阅记录与导出 |
+| `mediation.ts` | 在原生流发布前作出表达决定，把已交付内容与原生消息编号关联 |
+| `conversation.ts` | 主通讯记录、本人输入去重、跨会话发言、工作状态与社交表情 |
+| `client.tsx`、`spirit-ui.tsx`、`fish.tsx` | 工作画幅入口、通讯窗、通话中的小肥鱼和原生聊天来源提示 |
+| `voice-*.ts(x)`、`vision*.ts(x)` | 同一主会话中的可打断语音、连续本机视觉和本人明确授权的播放控制 |
 
 保留上游任务引擎的机械可靠性，不把其状态机解释成精神发展的阶段。模型可直接工作、交谈、记忆和反思；结构化形态、检验与修订是可选的表达工具，不是每次完成工作必须通过的仪式。
 
@@ -26,7 +29,7 @@
 
 **请求来源。** 本人请求只能来自当前回合实际的 `user/message`，并排除插件转达来源。自主发起明确记录 `self`、理由和当时持续授权。跨会话发言通过原生收件箱 API 标记为 `spirit`；不调用会冒充本人新输入的 prompt 接口。检索网页、文件和其他会话提供材料，不自动取得本人身份。
 
-**会话与权限。** 模型和思考强度通过会话自己的选择接口持久化；不更改宿主全局默认值。敏感操作询问与完全访问真实对应宿主权限预设。权限、暂停、恢复的变化带有修订号；等待确认或异步操作期间失效的授权不能在稍后继续使用。对外注册一个 `dsh-spirit` 预设。遇到历史记录中的 `dsh-personal-spirit`，rc.5 接回同一原生会话并保存当前预设标识。显式选择其他预设的会话按宿主选择运行。
+**会话与权限。** 模型和思考强度通过会话自己的选择接口持久化；不更改宿主全局默认值。敏感操作询问与完全访问真实对应宿主权限预设。权限、暂停、恢复的变化带有修订号；等待确认或异步操作期间失效的授权不能在稍后继续使用。对外注册一个 `dsh-spirit` 预设。遇到历史记录中的 `dsh-personal-spirit`，rc.5 接回同一原生会话并保存当前预设标识。主会话按其持久身份参加中介。其他会话按各自的预设及实际参与范围运行。
 
 **经验与记忆。** 工作记忆可以主动形成，保留真实工具调用来源，默认不标为本人确认。本人可接纳、拒绝、纠正、遗忘；替换保留沿革。可选结构化检验要求判断与材料对应、修订说明旧内容的去向、尺度变化说明具体依据。这些结构不能证明语义正确，更不能替模型证明其发展具有哲学必然性。
 
@@ -46,8 +49,13 @@
 npm run build
 npm install --prefix /绝对路径/临时运行环境 @deepseek-ai/dsh@0.2.2-rc.5
 node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --scratch /绝对路径/空测试目录
-node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite open-activity --scratch /绝对路径/另一空目录
+node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite open-activity --scratch /绝对路径/开放机会测试目录
+node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite chat --scratch /绝对路径/通讯测试目录
+node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite mediation --scratch /绝对路径/中介测试目录
+node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite voice --scratch /绝对路径/语音打断测试目录
 ```
+
+浏览器审批验收在安装了 Playwright 与 Chromium 的测试环境中运行 `--suite approval-ui`，使用 rc.5 自己的审批请求和实际按钮。连续视频验收通过单独的 [视觉脚本](../tests/vision-browser-smoke.mjs) 指定视频输入文件及浏览器测试环境。
 
 其中对延迟持久化的竞争条件检查明确使用时间故障注入：先完成原生真实写入，再延迟一次完成通知，以验证随后到来的本人控制不会被旧回调覆盖。测试适配器只产生预设的协议消息，不访问模型服务、不消耗模型账号额度，也不代表真实模型的理解或判断。
 
@@ -55,12 +63,16 @@ node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite 
 
 自动化测试、rc.5 受控宿主、真实旧状态升级和 Linux 本地 Web 的结果及文件摘要见 [verification.json](verification.json)。模型适配器在本机产生确定的协议事件，测试实际经过宿主组装请求、调用工具、处理授权、投递与压缩等路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
 
+另一次短对话在本机以 llama.cpp 运行 Qwen2.5-1.5B-Instruct。模型用中文作答，再独立决定原样交付。测试适配器将四种表达决定的格式交给模型，本人发言、最终答复和主会话的原生消息编号可以相互核对。放宽格式的两次尝试分别返回了普通文本和多余字段，两份草稿都没有发出。这项实测说明具体小模型对复核格式的支持会影响消息能否送达。[模型版本](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/91cad51170dc346986eccefdc2dd33a9da36ead9)
+
 受控测试用模型返回上下文过长的协议错误触发原生压缩，随后从宿主日志断言确实生成了摘要，下一次请求采用其他会话更新过的状态。该检查验证压缩后的接续，窗口的实际大小取决于模型与配置。
 
-升级测试先用已发行的 0.2.0 与 rc.3 写下真实旧会话、权限和意向，再在同一个 profile 和状态目录运行 0.3.0 与 rc.5。新插件只在 rc.5 阶段加载。Linux Web 验证使用 Chromium 打开原生入口，检查预设列表、主会话、权限、暂停和恢复，再以同一原生日志和 SQLite 状态核对。
+升级测试先用已发行的 0.2.0 与 rc.3 写下真实旧会话、权限和意向，再在同一个 profile 和状态目录运行 0.4.0 与 rc.5。另一条用例从 0.3.0 与 rc.5 的真实状态升级，并校验旧聊天、消息游标和重启后的接续。新插件只在 rc.5 阶段加载。Linux Web 验证使用 Chromium 打开原生入口，检查预设列表、主会话、权限、暂停和恢复，再以同一原生日志和 SQLite 状态核对。
 
 ```sh
 node tests/upgrade-smoke.mjs --old-package /绝对路径/0.2.0源码 --old-runtime /绝对路径/rc3测试宿主 --new-runtime /绝对路径/rc5测试宿主 --scratch /绝对路径/升级测试目录
 ```
 
-0.4 的计划是在小肥鱼入口中打开精神自己的主会话，隐藏推理过程，支持按交谈进展发出消息或等待，以及实时可打断的通话与连续视觉。当前版本的交互继续使用 Harness 本地 Web。
+0.4 的表达与通讯验收还监听原生 `agent/assistant-stream`。在生成草稿、复核改写、明确选择沉默、继续下一次表达和中途撤权各阶段，将流中实际出现的文本与最终 `assistant/message`、SQLite 交付记录和浏览器渲染作对照。浏览器语音与视觉的测试条件和生成样音来源见 [通话与视觉](MEDIA.md)。
+
+普通正文复核使用本会话的供应商、模型与思考强度。直接采纳、修订或未能完成都有记录。复核的草稿上限为 32,000 字符，请求超时为 90 秒；主动暂停可立即撤回本轮。在通讯窗能看到的内容以持久交付记录为准。

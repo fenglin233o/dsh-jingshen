@@ -35,6 +35,9 @@ test('Cordis unload discards native late settlement and only cancels the managed
   host.provide('agents', { get: (id: SessionId) => agents.get(id) })
   host.provide('subagents', { rootOf: (agent: Agent) => roots.get(agent.id) ?? agent })
   host.provide('approval', { overrideOf: () => 'never' })
+  const killJob = vi.fn()
+  host.provide('jobs', { list: () => [{ id: 'owned-job', owner: local.id, status: 'running' },
+    { id: 'other-job', owner: otherChild.id, status: 'running' }], kill: killJob })
   const stopped = Promise.withResolvers<void>()
   local.cancel.mockImplementation(() => { stopped.resolve() })
   const fiber = host.plugin(ctx => {
@@ -64,6 +67,9 @@ test('Cordis unload discards native late settlement and only cancels the managed
   await unloading
   expect(root.cancel).toHaveBeenCalledWith({ kind: 'parent' }, { keepInbox: true })
   expect(local.cancel).toHaveBeenCalledWith({ kind: 'parent' }, { keepInbox: false })
+  expect(killJob.mock.calls[0]).toEqual(['owned-job', local.id, expect.stringContaining('权限或活动状态已改变')])
+  expect(killJob.mock.calls.every(([id]) => id === 'owned-job')).toBe(true)
+  expect(killJob.mock.invocationCallOrder[0]).toBeLessThan(local.cancel.mock.invocationCallOrder[0]!)
   expect(otherRoot.cancel).not.toHaveBeenCalled()
   expect(otherChild.cancel).not.toHaveBeenCalled()
 })

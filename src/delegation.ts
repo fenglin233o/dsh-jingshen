@@ -224,12 +224,12 @@ export class SpiritDelegation {
     } catch (error) { this.ctx.logger.warn(`精神无法停止委派 ${run.info.id}：${String(error)}`) }
   }
 
-  private refreshJobs(lease: Lease, owner: SessionId): void {
+  private refreshJobs(lease: Lease, owner: SessionId, revoking = false): void {
     try {
       const jobs = this.ctx.get('jobs') as ChildJobs | undefined
       const active = jobs?.list(owner).filter(job => job.owner === owner && job.status === 'running')
       if (!jobs || !active?.length) { lease.jobOwners.delete(owner); return }
-      if (lease.abort.signal.aborted || this.closed) {
+      if (revoking || lease.abort.signal.aborted || this.closed) {
         for (const job of active) {
           try { jobs.kill(job.id, owner, '精神委派的权限或活动状态已改变') }
           catch (error) { this.ctx.logger.warn(`精神无法停止委派后台工作 ${job.id}：${String(error)}`) }
@@ -243,9 +243,10 @@ export class SpiritDelegation {
     for (const selected of roots) {
       const lease = this.leases.get(selected)
       this.leases.delete(selected)
+      // The native child may dispose immediately on either abort below. Record our own stop request first.
+      if (lease) for (const owner of lease.jobOwners) this.refreshJobs(lease, owner, true)
       lease?.abort.abort(new Error('精神委派的权限或活动状态已改变'))
       for (const run of this.runs.values()) if (run.lease === lease) this.cancel(run)
-      if (lease) for (const owner of lease.jobOwners) this.refreshJobs(lease, owner)
       if (this.ctx.agents.get(selected.id) === selected) {
         try {
           for (const message of [...selected.inbox.nextTurn, ...selected.inbox.nextStep]) {

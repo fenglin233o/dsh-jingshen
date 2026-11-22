@@ -57,8 +57,12 @@ export function publicSessionPage<T extends SessionEventsPage & { nextBeforeSeq:
     switch (event.type) {
       case 'turn/start': case 'turn/end': data = { turn: raw.turn, reason: raw.reason }; break
       case 'user/message': data = { id: raw.id, source: raw.source, content: visibleParts(raw.content) }; break
-      case 'assistant/message': data = { turn: raw.turn, step: raw.step, interrupted: raw.interrupted,
-        message: { id: message.id, source: message.source, content: visibleParts(message.content) } }; break
+      case 'assistant/message': {
+        const source = recordData(message.source)
+        data = { turn: raw.turn, step: raw.step, interrupted: raw.interrupted,
+          message: { id: message.id, source: { kind: source.kind, provider: source.provider, model: source.model }, content: visibleParts(message.content) } }
+        break
+      }
       case 'tool/call': data = { turn: raw.turn, step: raw.step, callId: raw.callId, name: raw.name, arguments: clipped(raw.arguments, 6000) }; break
       case 'tool/result': data = { turn: raw.turn, step: raw.step, message: { toolCallId: message.toolCallId, isError: message.isError,
         content: visibleParts(message.content) } }; break

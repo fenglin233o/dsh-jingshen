@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "精神 · 已授权视频标签页",
+  "version": "0.4.0",
+  "description": "在本人连接的 Harness 与本人选中的视频标签页之间传递播放、暂停和真实播放状态。",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": { "default_title": "连接本地精神，或授权当前视频页" },
+  "background": { "service_worker": "worker.js" },
+  "content_scripts": [{
+    "matches": ["http://127.0.0.1/*", "http://localhost/*", "https://127.0.0.1/*", "https://localhost/*"],
+    "js": ["bridge.js"],
+    "all_frames": false
+  }]
+}

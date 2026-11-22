@@ -65,6 +65,8 @@ export interface CreateSpiritSession {
   agentPreset?: string
   model?: ModelSelection
   permissionPreset?: string
+  /** The dedicated main conversation has a native cwd but its own UI. */
+  privateMain?: true
   signal?: AbortSignal
 }
 export interface SpiritPost {
@@ -147,11 +149,16 @@ export interface PresetContinuityContext {
  * preset (including a user's explicit Standard selection) during navigation.
  * Explicit selections and new Sessions go directly to the native controller.
  */
-export function preserveManagedBlankPreset(ctx: PresetContinuityContext, eligible: (id: string) => boolean): () => void {
+export function preserveManagedBlankPreset(ctx: PresetContinuityContext, eligible: (id: string) => boolean, privateMainId?: string): () => void {
   const controller = ctx.sessionController, descriptor = Object.getOwnPropertyDescriptor(controller, 'create')
   const original = controller.create
   let active = true
   const create = async function(this: PresetContinuityContext['sessionController'], request: Parameters<typeof original>[0]) {
+    if (active && privateMainId !== undefined && request.sessionId === privateMainId && request.workspaceId !== undefined) {
+      // A client restored from an older profile can still name the former main blank.
+      const { sessionId: _private, ...workspaceRequest } = request
+      return original.call(this, workspaceRequest)
+    }
     if (!active || request.sessionId === undefined || request.agentPreset !== undefined || !eligible(request.sessionId)) {
       return original.call(this, request)
     }
@@ -256,7 +263,7 @@ export class HarnessBridge {
 
   /**
    * The last substantive input in the current open turn, only when authored by
-   * the owner. Runtime snapshots and model-switch notices are bookkeeping;
+   * the owner. Runtime snapshots, the skill catalog and model-switch notices are bookkeeping;
    * every other producer blocks borrowing an earlier human request. Closed
    * turns and restored historical requests supply no new owner authorization.
    * Reads native history without resuming the Session or using snapshotEvents.
@@ -284,7 +291,9 @@ export class HarnessBridge {
         if (!message || typeof message !== 'object' || Array.isArray(message)) return undefined
         const source = message.source
         if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined
-        if (source.kind === 'runtime-context' || source.kind === 'model-selection') continue
+        if (source.kind === 'runtime-context' || source.kind === 'model-selection'
+          || source.kind === 'time-context' && source.form === 'snapshot'
+          || source.kind === 'skill-catalog' && source.form === 'catalog') continue
         if (source.kind !== 'user' || Object.prototype.hasOwnProperty.call(source, 'principal')) return undefined
         if (typeof message.id !== 'string' || !message.id || !Array.isArray(message.content)) return undefined
         const text = message.content.flatMap(part => part && typeof part === 'object' && !Array.isArray(part)
@@ -357,9 +366,9 @@ export class HarnessBridge {
       this.assertLive(agent)
       await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: input.title })
     }
-    const workspace = await this.ensureWorkspace(created.sessionId, { title: input.title, signal })
+    const workspace = input.privateMain ? undefined : await this.ensureWorkspace(created.sessionId, { title: input.title, signal })
     await this.ctx.sessionPersistence.flush()
-    return { ...created, workspaceId: workspace.workspaceId, ...(selected ? { model: selected } : {}), permissionPreset: this.ctx.permissionPresets.current(agent.session) }
+    return { ...created, ...(workspace ? { workspaceId: workspace.workspaceId } : {}), ...(selected ? { model: selected } : {}), permissionPreset: this.ctx.permissionPresets.current(agent.session) }
   }
 
   /**
