@@ -5,15 +5,16 @@
 ## 给精神打电话
 
 1. 在 Harness 的插件管理中启用带蓝色声波图标的官方“语音输入”。打开该插件详情，选择“下载并准备”，等 SenseVoiceSmall 就绪。精神复用宿主的本地识别器。[官方语音输入说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/experimental/voice-input-bundle/README.zh.md)
-2. 为朗读启动支持流式 PCM 的神经语音服务。例如在运行 Harness 的同一台电脑启动 Kokoro-FastAPI 的 CPU 版。第一次启动会获取其镜像与模型。[Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)
+2. 在插件目录运行以下命令，启动小肥鱼的中文声线服务。首次运行需要带 venv 的 Python 3.11 或更高版本和网络。模型与声码器约需下载 156 MiB，本次 Linux 安装的模型与 Python 环境合计约占 402 MiB。看到服务就绪后保留该终端，在同一台电脑启动 Harness。以后的启动会复用本机缓存。
 
    ```sh
-   docker run --rm -p 127.0.0.1:8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
+   npm run voice
    ```
 
-3. 在通讯窗点击“检查语音”，确认输入、输出与服务位置，再点击“接通并开麦”。浏览器会询问麦克风权限。开口可以打断当前朗读；挂断释放麦克风。通话中只朗读新交付给主会话的正文。若这段话所属的原生主会话还在继续生成，插话还会终止该次生成，保留后续输入。其他项目可以继续工作。收听时，麦克风仍可用于插话。
+3. 打开小肥鱼的通讯窗，点击“试听小肥鱼声线”即可播放随包的实际合成样音，无需打开麦克风。点击“检查语音”可以看见通话实际选用的声线。默认就绪时显示“小肥鱼 · 中文动画少女声（本机）”。
+4. 点击“接通并开麦”，在浏览器中授权麦克风。开口可以打断当前朗读，也会终止该条答复正在继续的生成。后来送入的发言与其他项目的工作可以继续，挂断会释放麦克风。
 
-本地默认声线是 Kokoro 的中文女声 `zf_xiaobei`。本次 9 秒中文试听在 CPU 上用 Kokoro-FastAPI v0.6.0 的实际服务合成。语速和停顿参考这条消息的公开语气与标点。支持 `instructions` 的语音模型还会收到普通话表演提示。可显式选用设备上可用的中文系统朗读，界面会标出来源。具体音色、停顿和表现力取决于所选的语音服务。
+小肥鱼的普通话声线有稚气、轻盈的起音，平静说话时也保留清亮的音色。制作时用 Qwen3-TTS VoiceDesign 按文字描述生成原创录音。通话服务用这段录音和随包台词作为声线参考，每条实际交付的消息都重新合成。参考录音与合成样音随插件提供，推理权重单独下载。ZipVoice 的 Emilia 预训练权重附有非商业许可。[声线设计模型](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign) · [ZipVoice 模型与许可](https://huggingface.co/k2-fsa/ZipVoice#4-license)
 
 ### 使用现有的语音服务
 
@@ -25,9 +26,9 @@
 | `SPIRIT_ASR_LANGUAGE` | 默认 `zh`；选择 `auto` 让服务自行判断语言 |
 | `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型与声音。输入为正文，响应为 24 kHz 单声道有符号 16 位小端 PCM |
 | `SPIRIT_TTS_STYLE` | `pace` 传送语速，`instructions` 传送表演提示 |
-| `SPIRIT_TTS_LOCAL_PROBE=0` | 关闭对本机 8880 端口的 Kokoro 服务发现 |
+| `SPIRIT_TTS_LOCAL_PROBE=0` | 关闭本地语音服务自动发现。默认小肥鱼服务使用 8891 端口 |
 
-本机的替代神经语音示例使用 Sherpa-ONNX、Kokoro v1.1 中文权重和 SenseVoice，含可复现的录音输入与打断测试。[本机示例](../tests/fixtures/voice-local-server.py) · [浏览器通话验收](../tests/voice-browser-smoke.mjs) · [中文模型与音色编号](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)
+如要继续使用先前配置的 Kokoro，可明确设置 `SPIRIT_TTS_BASE_URL=http://127.0.0.1:8880/v1`、`SPIRIT_TTS_MODEL=kokoro` 和自己的 `SPIRIT_TTS_VOICE`。使用 Sherpa-ONNX、Kokoro v1.1 与 SenseVoice 的本机示例包括录音输入和打断测试。[本机示例](../tests/fixtures/voice-local-server.py) · [浏览器通话验收](../tests/voice-browser-smoke.mjs) · [中文模型与音色编号](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)
 
 ## 共享视觉
 

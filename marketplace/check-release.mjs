@@ -50,6 +50,11 @@ try {
     const names = new Set(packed.files.map(file => file.path));
     packSummary = { name: packed.name, version: packed.version, files: names.size, unpackedSize: packed.unpackedSize };
     const required = ['lib/index.js', 'lib/client.js', 'README.md', 'LICENSE', 'NOTICE', 'scripts/run.mjs', 'scripts/spirit-recover.mjs', 'docs/verification.json', ...patches.filter(path => typeof path === 'string').map(path => path.replace(/^\.\//, ''))];
+    if (manifest.files?.includes('media/voice')) {
+      required.push('scripts/character-voice/prepare.py', 'scripts/character-voice/serve.py',
+        'scripts/character-voice/voice.json', 'scripts/character-voice/xiaoyu.wav',
+        'scripts/character-voice/xiaoyu.txt', 'media/voice/xiaoyu-preview.mp3');
+    }
     for (const lang of ['en', 'zh']) {
       const path = manifest.exports?.[`./locale/${lang}.json`];
       if (typeof path === 'string') required.push(path.replace(/^\.\//, ''));

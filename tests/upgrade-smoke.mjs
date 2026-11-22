@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run an in-place 0.2.0 or 0.3.0 profile upgrade to 0.4.0 using locally installed Harness.
+ * Run an in-place 0.2.0 or 0.3.0 profile upgrade to a built target package using locally installed Harness.
  * node tests/upgrade-smoke.mjs --old-runtime DIR --old-package DIR --new-runtime DIR [--new-package DIR] [--scratch NEW_DIR]
  * The package directories need built lib/ files. The current checkout needs installed dependencies.
  */
@@ -84,17 +84,20 @@ async function main() {
   for (const flag of ['--old-runtime', '--old-package', '--new-runtime']) assert(args.has(flag), `Required option: ${flag}`)
 
   function readJson(path) { return JSON.parse(readFileSync(path, 'utf8')) }
-  function release(packageRoot, runtime, packageVersion, harnessVersion) {
-    assert.equal(readJson(join(packageRoot, 'package.json')).version, packageVersion)
+  function release(packageRoot, runtime, harnessVersion) {
+    const manifest = readJson(join(packageRoot, 'package.json'))
+    assert.equal(manifest.name, packageName)
+    assert.match(String(manifest.version), /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/)
     assert.equal(readJson(join(runtime, 'node_modules/@deepseek-ai/dsh/package.json')).version, harnessVersion)
-    return { packageRoot, runtime, packageVersion, harnessVersion,
+    return { packageRoot, runtime, packageVersion: manifest.version, harnessVersion,
       sha256: createHash('sha256').update(readFileSync(join(packageRoot, 'lib/index.js'))).digest('hex') }
   }
   const oldPackage = args.get('--old-package'), oldVersion = readJson(join(oldPackage, 'package.json')).version
   const oldHarness = new Map([['0.2.0', '0.2.2-rc.3'], ['0.3.0', '0.2.2-rc.5']]).get(oldVersion)
   assert(oldHarness, `Unsupported source version: ${oldVersion}`)
-  const oldRelease = release(oldPackage, args.get('--old-runtime'), oldVersion, oldHarness)
-  const newRelease = release(args.get('--new-package') ?? repo, args.get('--new-runtime'), '0.4.0', '0.2.2-rc.5')
+  const oldRelease = release(oldPackage, args.get('--old-runtime'), oldHarness)
+  const newRelease = release(args.get('--new-package') ?? repo, args.get('--new-runtime'), '0.2.2-rc.5')
+  assert.notEqual(newRelease.packageVersion, oldVersion, 'The source and target must be different versions')
   const scratch = args.has('--scratch') ? args.get('--scratch') : mkdtempSync(join(tmpdir(), 'spirit-upgrade-'))
   if (args.has('--scratch')) mkdirSync(scratch, { mode: 0o700 })
   const home = join(scratch, 'home'), state = join(scratch, 'state'), address = join(scratch, 'address.json')
@@ -176,7 +179,9 @@ async function main() {
       for (const entry of ['package.json', 'cordis.patch.yml', 'lib', 'upstream', 'marketplace/locale']) {
         cpSync(join(build.packageRoot, entry), join(snapshot, entry), { recursive: true })
       }
-      if (existsSync(join(build.packageRoot, 'media/fish'))) cpSync(join(build.packageRoot, 'media/fish'), join(snapshot, 'media/fish'), { recursive: true })
+      for (const entry of ['media/fish', 'media/voice', 'scripts/character-voice']) {
+        if (existsSync(join(build.packageRoot, entry))) cpSync(join(build.packageRoot, entry), join(snapshot, entry), { recursive: true })
+      }
       mkdirSync(join(snapshot, 'tests'))
       for (const entry of readdirSync(dirname(file)).filter(name => name.endsWith('.mjs'))) {
         cpSync(join(dirname(file), entry), join(snapshot, 'tests', entry))

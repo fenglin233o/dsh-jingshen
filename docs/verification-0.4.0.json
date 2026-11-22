@@ -1,0 +1,336 @@
+{
+  "date": "2026-11-22",
+  "package": "dsh-jingshen",
+  "author": "fenglin",
+  "packageVersion": "0.4.0",
+  "harnessVersion": "0.2.2-rc.5",
+  "officialHarnessTag": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.5",
+  "nodeVersion": "24.22.3",
+  "platform": "Linux x86_64",
+  "baseline": {
+    "version": "0.3.0",
+    "harness": "0.2.2-rc.5",
+    "sourceCommit": "c79fb76def6649663c24a8903034b2653dd1814c",
+    "verification": "verification-0.3.0.json",
+    "remoteMainAtStart": "128636690a2af9a88de9101bb10d6a2a5027a366"
+  },
+  "build": {
+    "dependencies": "npm ci from package-lock.json",
+    "typecheck": "passed",
+    "clientAndHost": "passed"
+  },
+  "automatedTests": {
+    "passed": 185,
+    "failed": 0,
+    "files": {
+      "activation.spec.ts": 10,
+      "autonomy.spec.ts": 26,
+      "chromium-video.spec.ts": 2,
+      "client.spec.tsx": 12,
+      "continuity.spec.ts": 2,
+      "control.spec.ts": 5,
+      "conversation.spec.ts": 3,
+      "delegation.spec.ts": 1,
+      "experience.spec.ts": 21,
+      "fish.spec.tsx": 3,
+      "harness-bridge.spec.ts": 19,
+      "http.spec.ts": 10,
+      "mediation.spec.ts": 10,
+      "opportunity-turn.spec.ts": 5,
+      "self-change.spec.ts": 19,
+      "service.spec.ts": 24,
+      "spirit-ui.spec.tsx": 4,
+      "vision.spec.ts": 6,
+      "voice.spec.ts": 3
+    }
+  },
+  "model": "Controlled protocol adapters inside official rc.5 for regressions in chat, native decisions, tools, image delivery and context compaction. Independent short runs used real Qwen, neural speech and object detection.",
+  "realModelSmoke": {
+    "model": "Qwen2.5-1.5B-Instruct",
+    "weights": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+    "inference": "llama.cpp b12633 (9c10c94e1)",
+    "adapter": "Credential-free loopback llama.cpp with all four review choices expressed as a JSON schema. The first short draft used text generation without the native tool catalogue.",
+    "reply": "晴天里，地球上白天的天空通常呈现为蓝色。",
+    "decision": "speak",
+    "method": "review",
+    "nativeAndImMessageMatched": true,
+    "draftAndReviewTimeMs": [
+      10729,
+      4060
+    ],
+    "unconstrainedExperiments": [
+      "The unconstrained review repeated the draft instead of returning any structured decision. Spirit withheld it.",
+      "The model selected publish on its own, but included the text field that only revise may supply. Spirit withheld it."
+    ],
+    "evidence": "jingshen-04-live-qwen2.5.json",
+    "testedHostSha256": "f978cc626a264bbdadc7e0c9915d4a9ea3ff71e7ff7ea422a7546743bda764dd"
+  },
+  "controlledNativeRuntime": {
+    "default": {
+      "runner": "tests/runtime-smoke.mjs",
+      "packageVersion": "0.4.0",
+      "indexSha256": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+      "checks": [
+        "the native preset selector offers a single Spirit entry",
+        "full package mounts and native agent executes Spirit tools",
+        "model tool roster exposes continuity tools without owner control setters",
+        "normal Workspace navigation cannot take the private main, while standard and participating project blanks retain their own presets",
+        "native owner-created conversation inherits active work on its first request and can revise it for the whole profile",
+        "declining a real owner request records model authorship and creates no task",
+        "real rc.5 context overflow and native compaction retain the current orientation and do not revive cancelled work",
+        "Team disabled leaves ordinary native spawn operational with isolated context and a child-attributed result",
+        "native fork sees completed root context, mutates the shared Team task board as a named member and returns a child-attributed result",
+        "Team member messages and the live roster preserve native member names and authorship",
+        "native delegation revocation and stop abort work and background jobs without replaying queued work or affecting another preset",
+        "a new native follow-up can continue the member under workspace access without restoring the revoked input",
+        "native create/read/post preserves self attribution and workspace membership",
+        "session-local model and reasoning effort reach native requests",
+        "ask mode awaits and records native rejection before mutation",
+        "pause withdraws a pending native approval before its mutation",
+        "permission changes invalidate an outstanding native approval grant",
+        "full permission uses the selected standing access without extra asks",
+        "self-change verifies through native shell, refuses failed checks, applies and rolls back a local candidate",
+        "restart preserves the selected Team mode and shared task history in the native Lead Session",
+        "restart preserves awaiting_decision and never duplicates an accepted background turn",
+        "restart preserves native logs/model choice and one-shot revisit reaches spirit_decide",
+        "parallel permission/pause controls converge and revoke queued native activity",
+        "fault injection: delayed native pause flush cannot overtake newer resume permission state",
+        "fault injection: permission/pause/resume overlap reconciles the latest owner revision",
+        "direct native input while paused invokes neither model stream nor tool action",
+        "pause prevents deadline dispatch while keeping unresolved intentions",
+        "pause cancels active inference and stop prevents future autonomous actions"
+      ]
+    },
+    "mediation": {
+      "runner": "tests/runtime-smoke.mjs",
+      "packageVersion": "0.4.0",
+      "indexSha256": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+      "checks": [
+        "an ordinary main-session draft reaches the same selected model for a real publish decision before the native and IM messages are delivered",
+        "an explicit expression selects the actual public body in one model request and keeps the discarded draft and reasoning out of the public IM and proof",
+        "waiting and silence withhold drafts, while two volunteered utterances have distinct native message IDs and model steps in one turn",
+        "a participating project shows the laptop during real model work even before any tool runs",
+        "a participating owner project carries an exact provenance record and a standard project retains native output without a Spirit record",
+        "an explicitly participating custom project mediates normally and retains its native sandbox and approval even when global access becomes full",
+        "an already participating project keeps the owner’s later native customization and other conversations remain operable",
+        "a session created through the actual spirit_sessions tool also withholds original fragments before delivering its attributed output",
+        "a native delegation parent is mediated and its child retains separate native authorship",
+        "pausing after the adapter generated draft tokens prevents even a transient native text fragment from reaching its consumer",
+        "the identified main session continues through Spirit after an explicit native preset change",
+        "the fallback expression review can rewrite an ordinary model answer before the very first published text token"
+      ]
+    },
+    "voice": {
+      "runner": "tests/runtime-smoke.mjs",
+      "packageVersion": "0.4.0",
+      "indexSha256": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+      "checks": [
+        "voice interruption stops the exact native main continuation, releases phone presence, and preserves later owner input and project work"
+      ]
+    },
+    "chat": {
+      "runner": "tests/runtime-smoke.mjs",
+      "packageVersion": "0.4.0",
+      "indexSha256": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+      "checks": [
+        "Ask mode does not initiate an idle chat or native open opportunity",
+        "IM submits authenticated owner input to the same native main session and pages exact, deduplicated replies",
+        "Full access allows the model to independently send a new message or quietly finish the next open turn",
+        "A project can independently publish one attributed IM message without making its private native answer an IM message",
+        "Pause prevents delivery and restart preserves cursor and never requeues the same owner submission"
+      ]
+    },
+    "open-activity": {
+      "runner": "tests/runtime-smoke.mjs",
+      "packageVersion": "0.4.0",
+      "indexSha256": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+      "checks": [
+        "full access offers an event-free idle opportunity and preserves the native self-authored input",
+        "quiet orientation suppresses further event-free model requests",
+        "owner pause keeps an open orientation idle across another due interval",
+        "withdrawing full access aborts an admitted idle model turn and still accepts later owner input",
+        "an event-free opportunity can end silently without recording a judgment or blocking the next opportunity"
+      ]
+    }
+  },
+  "upgrades": [
+    {
+      "fromPlugin": "0.2.0",
+      "fromHarness": "0.2.2-rc.3",
+      "toPlugin": "0.4.0",
+      "toHarness": "0.2.2-rc.5",
+      "checks": [
+        "existing sessions keep their working directories and their first upgraded model requests use the only Spirit preset",
+        "owner permission revision and cancelled approval are retained and a new sensitive call requires a new approval",
+        "revoked work, owner-stopped work and the accepted dispatch do not replay automatically",
+        "explicit recovery uses a fresh native dispatch and the stored revisit executes once",
+        "old owner text and assistant reply enter the new chat once, with a live continuation in the same native history",
+        "preset selection and chat identity persist through a subsequent rc.5 restart",
+        "new conversations and workers use full permissions and the worker completes its first task"
+      ]
+    },
+    {
+      "fromPlugin": "0.3.0",
+      "fromHarness": "0.2.2-rc.5",
+      "toPlugin": "0.4.0",
+      "toHarness": "0.2.2-rc.5",
+      "checks": [
+        "existing sessions keep their working directories and their first upgraded model requests use the only Spirit preset",
+        "owner permission revision and cancelled approval are retained and a new sensitive call requires a new approval",
+        "revoked work, owner-stopped work and the accepted dispatch do not replay automatically",
+        "explicit recovery uses a fresh native dispatch and the stored revisit executes once",
+        "old owner text and assistant reply enter the new chat once, with a live continuation in the same native history",
+        "preset selection and chat identity persist through a subsequent rc.5 restart",
+        "new conversations and workers use full permissions and the worker completes its first task"
+      ]
+    }
+  ],
+  "linuxWeb": {
+    "renderer": "Chromium 156.0.8078.79 built on Debian GNU/Linux 13 (trixie)",
+    "status": "passed",
+    "pageErrors": 0,
+    "privateModelLeavesGlobalDefault": true,
+    "desktop": "1440x970",
+    "mobile": "390x844",
+    "measuredVoiceScene": {
+      "desktop": {
+        "x": 384.40625,
+        "y": 72.75,
+        "width": 951.1875,
+        "height": 824.5
+      },
+      "desktopWork": {
+        "x": 280,
+        "y": 0,
+        "w": 1160,
+        "h": 970
+      },
+      "desktopActorContainer": {
+        "x": 565,
+        "y": 209.21875,
+        "width": 590,
+        "height": 514.546875
+      },
+      "mobile": {
+        "x": 4,
+        "y": 8,
+        "width": 382,
+        "height": 832
+      },
+      "desktopVisibleActor": {
+        "rect": [
+          696,
+          231,
+          1024,
+          702
+        ],
+        "heightRatio": 0.5712553062462098
+      },
+      "mobileVisibleActor": {
+        "rect": [
+          62,
+          213,
+          328,
+          595
+        ],
+        "heightRatio": 0.45913461538461536
+      }
+    },
+    "layoutTestBuild": {
+      "lib/index.js": "d32aa9f72611844c19fa541e728f45ede3a0ac9ab4e5ce609b6bc924362f9878",
+      "lib/client.js": "4952c8aaf8d951ee98446d7678a07aa21ef2258238aa63f55ae69fe4e4692d53",
+      "cordis.patch.yml": "acd168e24c8f1e8bc2523a23ede422e01bb9bf987c42cb5aeec55d3d81f66eec"
+    },
+    "officialPackageInstallPreflight": [
+      "fresh official Web template installs the exact local tarball into its own profile",
+      "official browser shows a single floating fish, with the single active Spirit preset",
+      "three bundled transparent atlases are byte-exact over HTTP and support HEAD and revalidation",
+      "browser chat sends one owner message and one authorized reply in the same native turn",
+      "an explicitly published project message shows its source, and clicking opens the private native source session",
+      "reload keeps the same hidden main session, deduplicated chat and ordinary project membership"
+    ]
+  },
+  "realApprovalUI": {
+    "checks": [
+      "the native ask survives model selection and closing the fish window, and the actual Reject button prevents the mutation",
+      "Allow once settles the official native approval waterfall and creates exactly one real Workspace Session",
+      "pausing withdraws the pending approval and its native cancelled outcome leaves the Workspace untouched",
+      "the official native question carrier receives the exact option selected in the fish conversation",
+      "the live phone view exposes the same official native approval and the browser refusal prevents the mutation"
+    ],
+    "passed": true,
+    "source": "tests/runtime-smoke.mjs --suite approval-ui",
+    "runtime": "Native Gateway owner, official Web CLI profile, actual Chromium buttons and real rc.5 tool decisions."
+  },
+  "neuralAudio": {
+    "asr": "SenseVoiceSmall on CPU",
+    "tts": "Kokoro Chinese; PCM arrived via the actual configured service",
+    "browserInput": "Real Chromium getUserMedia using a deterministic microphone wave file",
+    "playbackStops": 6,
+    "audioTracksAfterHangup": [
+      "ended"
+    ],
+    "browserErrors": 0,
+    "source": "tests/voice-browser-smoke.mjs",
+    "defaultVoiceSample": {
+      "provider": "Kokoro-FastAPI v0.6.0 (CPU), actual /v1/audio/speech",
+      "model": "kokoro",
+      "voice": "zf_xiaobei",
+      "seconds": 9.0,
+      "file": "jingshen-04-voice-kokoro-fastapi-zf-xiaobei.mp3",
+      "sha256": "a15ae93ad55962a6d0f841f72b745ba201d1fe21b179fa5d09344ff4b9c44ce5"
+    }
+  },
+  "continuousVision": {
+    "source": "tests/vision-browser-smoke.mjs",
+    "detector": "MediaPipe / TensorFlow EfficientDet-Lite0, CPU WASM inside Chromium",
+    "detectorSha256": "2e04c53bfeac0ac2a30c057c7e2a777594ce39baaac35a92f74fb1e8c4fc4e0b",
+    "observations": 20,
+    "medianObservationIntervalMs": 852.0,
+    "medianCaptureToHostMs": 242.0,
+    "sourcesTested": [
+      "prerecorded scenes delivered by Chromium camera device",
+      "approved local video",
+      "approved HTTPS media",
+      "two selections within one authorized HTTPS origin, including an idle opportunity while the chat is minimized"
+    ],
+    "nativeModelImages": [
+      {
+        "mediaType": "image/jpeg",
+        "bytes": 42863
+      }
+    ],
+    "pauseStoppedTracks": true,
+    "minimizingStoppedCameraTracks": true,
+    "closedPageEndedLease": true
+  },
+  "optionalChromiumVideoControl": {
+    "browser": "156.0.8078.79",
+    "mediaAndCaptureAPI": "real Chromium getDisplayMedia, Capture Handle, playback, pause and media time",
+    "checked": [
+      "Harness tab opt-in then explicit HTTPS target tab authorization",
+      "real captured Chromium browser track carries the authorization Capture Handle and binds",
+      "wrong same-origin controller tab, wrong handle, and nonfixed action are refused",
+      "fixed status/play/stop operate the real visible HTML video; observed playback time advances and stops",
+      "target and controller action toggles revoke Capture Handle and all old commands are refused"
+    ],
+    "nativeExtensionInstall": "The test machine administrator blocks loading unpacked extensions. The Chrome extension messaging, toolbar grant and scripting boundary were substituted in the media test."
+  },
+  "sha256": {
+    "lib/index.js": "89bf0003ed986934e2e9afc2a59ce403d17f8c2eac893c1391df8a898d98ede9",
+    "lib/index.d.ts": "7a565201f46504f7457bceae3eceaab20e7fd194843e9182f01adf505ec162db",
+    "lib/client.js": "2747fb5d316d300165b710e9e92a6a1efd0fa4a827ab6fe3d177ef0e66cc4a85",
+    "cordis.patch.yml": "acd168e24c8f1e8bc2523a23ede422e01bb9bf987c42cb5aeec55d3d81f66eec",
+    "src/vision-assets/efficientdet_lite0.tflite": "2e04c53bfeac0ac2a30c057c7e2a777594ce39baaac35a92f74fb1e8c4fc4e0b",
+    "media/fish/activity.png": "9137f9b4de91b27361dbbc7c3f2acd28ba721018bfe22d56b024514a1bf72864",
+    "media/fish/social.png": "e1e5e08fddbd47ddf05957b5632001d985679dc134c594254a6bde782decaf5d",
+    "media/fish/social-rest.png": "515892c8b39338a5be1afd94ea2f2a83e3a1aa8023681543215a67d9c6c8e8df",
+    "tests/runtime-smoke.mjs": "8519b6d1a2d078ff772622368e99d20af8fd0931e009c6ad2f7dbf92b6a46586",
+    "tests/upgrade-smoke.mjs": "f920508741b930cd8b19408862870edeadf72a9824c6eddb70c9d6bb2712985e"
+  },
+  "notEvaluated": [
+    "Long-running development with a real chat model or subjective consciousness",
+    "Recorded physical microphone/camera on each target device, conversational latency or voice quality for every installation",
+    "Electron Desktop, Windows, macOS, arbitrary third-party sign-in, DRM players or unbounded full-scene video understanding"
+  ]
+}

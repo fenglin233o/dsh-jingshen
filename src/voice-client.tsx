@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { encodeVoiceWav, PcmPlayer, SpeechGate } from './voice-audio.ts'
 import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceEvent } from './voice-protocol.ts'
 
@@ -322,6 +322,31 @@ export class VoiceTransport {
 
 const workletLoaded = new WeakSet<AudioContext>()
 
+function VoiceSample() {
+  const audio = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    const element = audio.current
+    return () => { if (element && !element.paused) element.pause() }
+  }, [])
+  const toggle = () => {
+    const element = audio.current
+    if (!element) return
+    setError(false)
+    if (element.paused) {
+      element.currentTime = 0
+      void element.play().catch(reason => { if (reason?.name !== 'AbortError') setError(true) })
+    } else element.pause()
+  }
+  return <>
+    <button type="button" onClick={toggle} aria-pressed={playing}>{playing ? '停止试听' : '试听小肥鱼声线'}</button>
+    <audio ref={audio} preload="none" src="/personal-spirit/assets/voice/xiaoyu-preview.mp3"
+      onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+    {error && <span role="status">样音播放失败</span>}
+  </>
+}
+
 export function VoiceCall({ active = true, onCallChange }: {
   active?: boolean
   onCallChange?: (state: VoiceCallState) => void
@@ -356,14 +381,18 @@ export function VoiceCall({ active = true, onCallChange }: {
           <button type="button" onClick={() => transport.hangup()}>挂断</button>
         </>
         : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(systemVoiceAvailable && fallback)}>{availability?.input ? '接通并开麦' : '接通语音'}</button>}
-      {!connected && state.phase !== 'connecting' && active && <button type="button" onClick={() => void transport.check()}>检查语音</button>}
+      {!connected && state.phase !== 'connecting' && active && <>
+        <button type="button" onClick={() => void transport.check()}>检查语音</button>
+        <VoiceSample />
+      </>}
     </div>
     <p className="spirit-voice-status" role="status">{state.error ?? state.label}</p>
     {!connected && availability && active && <div className="spirit-voice-providers">
       {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '本机' : '远端服务'}）</span> : <span>未配置语音转写</span>}
-      {availability.output ? <span>AI 合成语音 · {availability.output.name}（{availability.output.location === 'host-local' ? '本机' : '远端服务'}）</span> : <span>未探测到神经语音</span>}
+      {availability.output ? <span>通话声线 · {availability.output.name}（{availability.output.location === 'host-local' ? '本机' : '远端服务'}）</span>
+        : <span>小肥鱼声线服务未连接。在插件目录运行 <code>npm run voice</code> 后检查语音。</span>}
       {systemVoiceAvailable && <label><input type="checkbox" checked={fallback} onChange={event => setFallback(event.target.checked)} />使用设备中文朗读（备选）</label>}
     </div>}
-    {connected && <span className="spirit-voice-provider">{fallback ? '设备朗读（备选）' : availability?.output ? 'AI 合成语音' : '仅语音转写'}</span>}
+    {connected && <span className="spirit-voice-provider">{fallback ? '设备朗读（备选）' : availability?.output?.name ?? '仅语音转写'}</span>}
   </div>
 }

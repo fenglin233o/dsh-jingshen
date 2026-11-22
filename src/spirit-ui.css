@@ -422,7 +422,7 @@
   .jingshen-launcher { transition: none; }
 }
 .jingshen-media .spirit-voice { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
-.jingshen-media .spirit-voice-controls { display: flex; gap: 4px; }
+.jingshen-media .spirit-voice-controls { display: flex; flex-wrap: wrap; gap: 4px; }
 .jingshen-media .spirit-voice-status, .jingshen-media .spirit-voice-provider { margin: 0; font-size: 10px; color: var(--muted); }
 .jingshen-media .spirit-voice-providers { flex-basis: 100%; display: flex; gap: 4px 7px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
 .jingshen-media .spirit-voice-providers label { display: inline-flex; gap: 3px; align-items: center; }

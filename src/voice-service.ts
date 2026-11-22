@@ -41,17 +41,32 @@ export function validateVoiceWav(audio: Uint8Array<ArrayBuffer>): void {
   }
 }
 
-function speechChunks(text: string): string[] {
+function speechChunks(text: string, limit: number): string[] {
   const chunks: string[] = []
   let pending = ''
-  for (const sentence of text.match(/[^。！？；\n]+[。！？；\n]*|[。！？；\n]+/gu) ?? []) {
-    // Start a first utterance quickly on CPU providers that cannot return a
-    // partial sentence. Longer paragraphs remain intact once audio is flowing.
-    if (!chunks.length && !pending && sentence.length <= 110) { chunks.push(sentence); continue }
-    if (pending.length + sentence.length > 1000 && pending) { chunks.push(pending); pending = '' }
-    if (sentence.length <= 1000) { pending += sentence; continue }
+  for (const sentence of text.match(/[^。！？!?；;\n]+[。！？!?；;\n]*|[。！？!?；;\n]+/gu) ?? []) {
+    if (pending.length + sentence.length > limit && pending) { chunks.push(pending); pending = '' }
+    if (sentence.length <= limit) {
+      pending += sentence
+      // Keep a brief interjection with the thought that follows. Start playback after the first spoken phrase.
+      if (!chunks.length && pending.length <= 110 && pending.replace(/[^\p{L}\p{N}]/gu, '').length >= 3) {
+        chunks.push(pending)
+        pending = ''
+      }
+      continue
+    }
     const letters = [...sentence]
-    for (let index = 0; index < letters.length; index += 750) chunks.push(letters.slice(index, index + 750).join(''))
+    const stride = Math.min(750, limit)
+    for (let index = 0; index < letters.length;) {
+      let end = Math.min(index + stride, letters.length)
+      if (end < letters.length) {
+        for (let cut = end; cut > index + stride / 2; cut--) {
+          if (/[，,、\s]/u.test(letters[cut - 1]!)) { end = cut; break }
+        }
+      }
+      chunks.push(letters.slice(index, end).join(''))
+      index = end
+    }
   }
   if (pending) chunks.push(pending)
   return chunks
@@ -157,7 +172,9 @@ export class VoiceService {
     call.playback = playback
     const signal = AbortSignal.any([call.abort.signal, playback.abort.signal, caller])
     try {
-      for (const text of speechChunks(message.text)) {
+      // Bound individual CPU syntheses independently of the length of the public chat message.
+      const limit = call.providers.output.info.model === 'jingshen-character' ? 80 : 1000
+      for (const text of speechChunks(message.text, limit)) {
         signal.throwIfAborted()
         this.requireActive()
         const stream = await call.providers.output.stream({ ...message, text }, signal)

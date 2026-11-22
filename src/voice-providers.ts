@@ -14,17 +14,20 @@ type Recognition = { info: NonNullable<VoiceAvailability['input']>; transcribe(w
 type Synthesis = { info: NonNullable<VoiceAvailability['output']>; stream(message: VoiceMessage, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> }
 export interface VoiceProviders { input: Recognition | null; output: Synthesis | null }
 
+const characterModel = 'jingshen-character'
+const characterUrl = 'http://127.0.0.1:8891/v1'
+const kokoroUrl = 'http://127.0.0.1:8880/v1'
 const localhost = new Set(['localhost', '127.0.0.1', '[::1]'])
 const tone = {
-  gentle: { speed: 0.94, instructions: '温柔、清亮，音高自然偏明亮。像平静地和熟悉的人说话，句尾放松。' },
-  bright: { speed: 1.05, instructions: '轻快真诚，语调稍有起伏，重点清楚，语速自然。' },
-  grounded: { speed: 0.91, instructions: '沉着清楚，遇到事实或分歧略微放慢，留出自然停顿。' },
+  gentle: { speed: 0.99, instructions: '像在和身边的朋友说悄悄话，温柔里带一点好奇，问句末尾轻轻扬起。' },
+  bright: { speed: 1.06, instructions: '发现有趣的事时笑意透出来，重音灵巧，有轻有重。' },
+  grounded: { speed: 0.95, instructions: '认真解释时稍慢，仍用同一个清亮的小嗓音，停顿从容。' },
 } as const
 
 export function speechStyle(message: VoiceMessage): { speed: number; instructions: string } {
   const style = message.tone === 'serious' ? tone.grounded
     : message.tone === 'playful' || !message.tone && /[！!]/u.test(message.text) ? tone.bright : tone.gentle
-  return { speed: style.speed, instructions: `用自然的普通话演绎原创动画角色的语气。${style.instructions} 按标点自然停顿，避免夸张、卖萌或模仿任何真人。不增加原文以外的内容。` }
+  return { speed: style.speed, instructions: `用自然的普通话演绎小肥鱼，一位聪慧、带稚气的动画女孩。嗓音清透偏高，发音轻巧，像近距离对话。${style.instructions} 保持原文，在意群之间换气。` }
 }
 
 function endpoint(base: string, key?: string): Endpoint {
@@ -42,7 +45,7 @@ function remoteFetch(target: Endpoint, route: string, init: RequestInit, signal:
 export class VoiceProviderDiscovery {
   private readonly env: NodeJS.ProcessEnv
   private readonly lifecycle = new AbortController()
-  private probe?: { until: number; result: Promise<Endpoint | undefined> }
+  private probe?: { url: string; until: number; result: Promise<Endpoint | undefined> }
 
   constructor(private readonly ctx: Context, env = process.env) { this.env = env }
 
@@ -76,17 +79,17 @@ export class VoiceProviderDiscovery {
     }
   }
 
-  private localKokoro(): Promise<Endpoint | undefined> {
+  private localSynthesis(kokoroRequested: boolean): Promise<Endpoint | undefined> {
     if (this.env.SPIRIT_TTS_LOCAL_PROBE === '0') return Promise.resolve(undefined)
-    if (this.probe && this.probe.until > Date.now()) return this.probe.result
-    const target = endpoint('http://127.0.0.1:8880/v1')
+    const target = endpoint(kokoroRequested ? kokoroUrl : characterUrl)
+    if (this.probe?.url === target.url && this.probe.until > Date.now()) return this.probe.result
     const result = remoteFetch(target, 'models', {}, AbortSignal.any([this.lifecycle.signal, AbortSignal.timeout(750)]))
       .then(async response => {
         if (!response.ok) { await response.body?.cancel(); return undefined }
         const models = await response.json() as { data?: { id?: string }[] }
-        return models.data?.some(item => item.id?.toLowerCase().includes('kokoro')) ? target : undefined
+        return models.data?.some(item => kokoroRequested ? item.id?.toLowerCase().includes('kokoro') : item.id === characterModel) ? target : undefined
       }).catch(() => undefined)
-    this.probe = { until: Date.now() + 15_000, result }
+    this.probe = { url: target.url, until: Date.now() + 3_000, result }
     return result
   }
 
@@ -95,18 +98,24 @@ export class VoiceProviderDiscovery {
     this.lifecycle.signal.throwIfAborted()
     const input = this.recognition()
     const inferredOpenAI = !env.SPIRIT_TTS_BASE_URL && !!env.SPIRIT_TTS_API_KEY
+    const kokoroRequested = /kokoro/iu.test(env.SPIRIT_TTS_MODEL ?? '') || (!env.SPIRIT_TTS_MODEL && /^[a-z][fm]_/iu.test(env.SPIRIT_TTS_VOICE ?? ''))
     const target = env.SPIRIT_TTS_BASE_URL ? endpoint(env.SPIRIT_TTS_BASE_URL, env.SPIRIT_TTS_API_KEY)
-      : inferredOpenAI ? endpoint('https://api.openai.com/v1', env.SPIRIT_TTS_API_KEY) : await this.localKokoro()
+      : inferredOpenAI ? endpoint('https://api.openai.com/v1', env.SPIRIT_TTS_API_KEY) : await this.localSynthesis(kokoroRequested)
     if (!target) return { input, output: null }
-    const officialOpenAI = inferredOpenAI || new URL(target.url).hostname === 'api.openai.com'
-    const model = env.SPIRIT_TTS_MODEL ?? (officialOpenAI ? 'gpt-4o-mini-tts' : 'kokoro')
+    const url = new URL(target.url)
+    const officialOpenAI = inferredOpenAI || url.hostname === 'api.openai.com'
+    const isCharacterEndpoint = target.location === 'host-local' && url.port === '8891'
+    const model = env.SPIRIT_TTS_MODEL ?? (officialOpenAI ? 'gpt-4o-mini-tts' : isCharacterEndpoint ? characterModel : 'kokoro')
+    const character = model === characterModel
     const kokoro = /kokoro/iu.test(model)
-    const voice = env.SPIRIT_TTS_VOICE ?? (kokoro ? 'zf_xiaobei' : 'marin')
-    const expressive = env.SPIRIT_TTS_STYLE === 'instructions' || (env.SPIRIT_TTS_STYLE !== 'pace' && model.includes('mini-tts'))
+    const voice = env.SPIRIT_TTS_VOICE ?? (character ? 'xiaoyu' : kokoro ? 'zf_xiaobei' : 'marin')
+    const expressive = !character && (env.SPIRIT_TTS_STYLE === 'instructions' || (env.SPIRIT_TTS_STYLE !== 'pace' && model.includes('mini-tts')))
+    const name = character && voice === 'xiaoyu' ? '小肥鱼 · 中文动画少女声'
+      : `${kokoro ? 'Kokoro' : officialOpenAI ? 'OpenAI' : model} · ${voice}`
     return {
       input,
       output: {
-        info: { name: kokoro ? 'Kokoro 神经语音' : officialOpenAI ? 'OpenAI 神经语音' : '配置的语音合成服务', location: target.location },
+        info: { name, model, voice, location: target.location },
         stream: async (message, signal) => {
           const style = speechStyle(message)
           const result = await remoteFetch(target, 'audio/speech', {

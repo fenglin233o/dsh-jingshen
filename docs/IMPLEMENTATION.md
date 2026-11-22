@@ -1,6 +1,6 @@
 # 实现与验证记录
 
-本包为 `dsh-jingshen` 0.4.0，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
+本包为 `dsh-jingshen` 0.4.1，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
 
 ## SuperAgent 基底与改造范围
 
@@ -61,13 +61,13 @@ node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite 
 
 ## 本次交付的验证结果
 
-自动化测试、rc.5 受控宿主、真实旧状态升级和 Linux 本地 Web 的结果及文件摘要见 [verification.json](verification.json)。模型适配器在本机产生确定的协议事件，测试实际经过宿主组装请求、调用工具、处理授权、投递与压缩等路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
+本补丁的声线与发行包验收见 [verification.json](verification.json)。下文所述的 0.4.0 行为基线，包括自动化测试、rc.5 宿主、真实旧状态升级和 Linux 本地 Web，见 [0.4.0 验证档案](verification-0.4.0.json)。基线的本机模型适配器产生确定的协议事件，并经过宿主组装请求、调用工具、处理授权、投递与压缩等实际路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
 
 另一次短对话在本机以 llama.cpp 运行 Qwen2.5-1.5B-Instruct。模型用中文作答，再独立决定原样交付。测试适配器将四种表达决定的格式交给模型，本人发言、最终答复和主会话的原生消息编号可以相互核对。放宽格式的两次尝试分别返回了普通文本和多余字段，两份草稿都没有发出。这项实测说明具体小模型对复核格式的支持会影响消息能否送达。[模型版本](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/91cad51170dc346986eccefdc2dd33a9da36ead9)
 
 受控测试用模型返回上下文过长的协议错误触发原生压缩，随后从宿主日志断言确实生成了摘要，下一次请求采用其他会话更新过的状态。该检查验证压缩后的接续，窗口的实际大小取决于模型与配置。
 
-升级测试先用已发行的 0.2.0 与 rc.3 写下真实旧会话、权限和意向，再在同一个 profile 和状态目录运行 0.4.0 与 rc.5。另一条用例从 0.3.0 与 rc.5 的真实状态升级，并校验旧聊天、消息游标和重启后的接续。新插件只在 rc.5 阶段加载。Linux Web 验证使用 Chromium 打开原生入口，检查预设列表、主会话、权限、暂停和恢复，再以同一原生日志和 SQLite 状态核对。
+升级测试先用已发行的 0.2.0 与 rc.3 写下真实旧会话、权限和意向，再在同一个 profile 和状态目录运行待验证的包与 rc.5。另一条用例从 0.3.0 与 rc.5 的真实状态升级，并校验旧聊天、消息游标和重启后的接续。目标版本从待验证包的清单读取。Linux Web 验证使用 Chromium 打开原生入口，检查预设列表、主会话、权限、暂停和恢复，再以同一原生日志和 SQLite 状态核对。
 
 ```sh
 node tests/upgrade-smoke.mjs --old-package /绝对路径/0.2.0源码 --old-runtime /绝对路径/rc3测试宿主 --new-runtime /绝对路径/rc5测试宿主 --scratch /绝对路径/升级测试目录

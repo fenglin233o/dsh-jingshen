@@ -1,4 +1,4 @@
-dsh-jingshen 0.4.0 · 精神
+dsh-jingshen 0.4.1 · 精神
 
 This is an independently adapted personal plugin, not an official DeepSeek product.
 It incorporates code from deepseek-ai/dsh-superagent-prototype under the MIT license.
@@ -20,3 +20,12 @@ Live vision uses the Apache-2.0 MediaPipe Tasks runtime and TensorFlow's
 EfficientDet-Lite0 detector. The detector, its attribution and its license are
 in src/vision-assets/. Character artwork was generated for this adaptation
 using the visual reference provided by its author.
+
+Xiaoyu's Mandarin speaker reference was generated from original dialogue and
+acting directions with Qwen3-TTS VoiceDesign (Apache-2.0). The bundled preview
+contains new lines synthesized from this reference by the local call engine.
+Sources, checksums and generation settings are in scripts/character-voice/voice.json.
+The optional local speech setup downloads the k2-fsa Emilia-trained ZipVoice
+Distill model (CC BY-NC) and the Vocos 24 kHz vocoder separately.
+Model terms: https://huggingface.co/k2-fsa/ZipVoice#4-license
+Vocoder: https://huggingface.co/charactr/vocos-mel-24khz

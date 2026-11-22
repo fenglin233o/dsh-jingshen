@@ -6,6 +6,7 @@ import { encodeVoiceWav, SpeechGate } from '../src/voice-audio.ts'
 import type { VoiceEvent } from '../src/voice-protocol.ts'
 import { VoiceService, validateVoiceWav } from '../src/voice-service.ts'
 import { NativeVoiceTurns } from '../src/voice-native.ts'
+import { VoiceProviderDiscovery } from '../src/voice-providers.ts'
 
 const silence = () => new Float32Array(320)
 const speech = () => new Float32Array(320).fill(0.1)
@@ -13,6 +14,58 @@ const recording = () => new Uint8Array(encodeVoiceWav([speech(), speech()], 16_0
 const signal = () => new AbortController().signal
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
+
+test('an unconfigured phone discovers only the little fish and asks that service to render the delivered line', async () => {
+  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, {})
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (url === 'http://127.0.0.1:8891/v1/models') return Response.json({ data: [{ id: 'jingshen-character' }] })
+    expect(url).toBe('http://127.0.0.1:8891/v1/audio/speech')
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      model: 'jingshen-character', voice: 'xiaoyu', input: '你也看见了吗？', response_format: 'pcm', speed: 1.06,
+    })
+    return new Response(Uint8Array.of(3, 4), { headers: { 'content-type': 'audio/pcm' } })
+  })
+  const { output } = await provider.detect()
+  expect(output?.info).toEqual({ name: '小肥鱼 · 中文动画少女声', model: 'jingshen-character', voice: 'xiaoyu', location: 'host-local' })
+  const pcm = await output!.stream({ id: 'turn', text: '你也看见了吗？', tone: 'playful' }, signal())
+  expect(await new Response(pcm).arrayBuffer()).toEqual(Uint8Array.of(3, 4).buffer)
+  expect(fetch).toHaveBeenCalledTimes(2)
+  provider.close()
+})
+
+test('another engine cannot claim the default voice, and an explicit Kokoro choice still uses its named voice', async () => {
+  const ctx = { get: () => undefined } as unknown as Context
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [{ id: 'kokoro' }] }))
+  const defaultPhone = new VoiceProviderDiscovery(ctx, {})
+  expect((await defaultPhone.detect()).output).toBeNull()
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['http://127.0.0.1:8891/v1/models'])
+  const configured = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_VOICE: 'zf_xiaobei' })
+  expect((await configured.detect()).output?.info).toMatchObject({ model: 'kokoro', voice: 'zf_xiaobei' })
+  expect(fetch.mock.lastCall?.[0]).toBe('http://127.0.0.1:8880/v1/models')
+  defaultPhone.close()
+  configured.close()
+})
+
+test('the character reads interjections with the next phrase and preserves every word of a long message', async () => {
+  vi.stubEnv('SPIRIT_TTS_BASE_URL', 'http://127.0.0.1:8891/v1')
+  vi.stubEnv('SPIRIT_TTS_MODEL', 'jingshen-character')
+  const phrases: string[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    phrases.push(JSON.parse(String(init?.body)).input)
+    return new Response(Uint8Array.of(2, 0), { headers: { 'content-type': 'audio/pcm' } })
+  })
+  const service = new VoiceService({ ctx: { get: () => undefined } as unknown as Context, checkActive() {}, submit: async () => {} })
+  try {
+    const call = await service.open()
+    service.attach(call.id, () => {})
+    const text = '咦？你看见了吗？' + '那颗小星星，'.repeat(80) + '眨了一下眼睛。'
+    service.delivered({ id: 'long', text })
+    for await (const _part of service.speech(call.id, 'long', signal())) { /* drain each synthesized phrase */ }
+    expect(phrases[0]).toBe('咦？你看见了吗？')
+    expect(phrases.join('')).toBe(text)
+    expect(phrases.every(phrase => [...phrase].length <= 80)).toBe(true)
+  } finally { service.close() }
+})
 
 test('microphone onset interrupts before a complete recording and keeps the leading speech', () => {
   const begin = vi.fn(), complete = vi.fn<(frames: Float32Array[]) => void>()
