@@ -15,8 +15,10 @@ const signal = () => new AbortController().signal
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
-test('a phone with no synthesis URL still discovers only the little fish even when a remote API key remains set', async () => {
-  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, { SPIRIT_TTS_API_KEY: 'unused-remote-key' })
+test('explicit legacy character voice discovers its own loopback service without exposing a stale remote key', async () => {
+  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, {
+    SPIRIT_TTS_MODEL: 'jingshen-character', SPIRIT_TTS_API_KEY: 'unused-remote-key',
+  })
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (url === 'http://127.0.0.1:8891/v1/models') return Response.json({ data: [{ id: 'jingshen-character' }] })
     expect(url).toBe('http://127.0.0.1:8891/v1/audio/speech')
@@ -34,17 +36,42 @@ test('a phone with no synthesis URL still discovers only the little fish even wh
   provider.close()
 })
 
-test('another engine cannot claim the default voice, and an explicit Kokoro choice still uses its named voice', async () => {
+test('default speech is bundled without HTTP probes, and an explicit Kokoro choice still uses its named voice', async () => {
   const ctx = { get: () => undefined } as unknown as Context
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [{ id: 'kokoro' }] }))
   const defaultPhone = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_API_KEY: 'unused-remote-key' })
-  expect((await defaultPhone.detect()).output).toBeNull()
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['http://127.0.0.1:8891/v1/models'])
+  const { input, output } = await defaultPhone.detect()
+  expect(output?.info).toMatchObject({ model: 'jingshen-light', voice: 'xiaoyu', location: 'host-local' })
+  expect(input?.info).toEqual({ name: '随包普通话识别', location: 'host-local' })
+  expect(fetch).not.toHaveBeenCalled()
   const configured = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_VOICE: 'zf_xiaobei' })
   expect((await configured.detect()).output?.info).toMatchObject({ model: 'kokoro', voice: 'zf_xiaobei' })
   expect(fetch.mock.lastCall?.[0]).toBe('http://127.0.0.1:8880/v1/models')
   defaultPhone.close()
   configured.close()
+})
+
+test('local recognition pins its chosen provider and keeps a cloud registry selection off the microphone path', async () => {
+  const selection = { providerId: 'local', language: 'zh' }
+  const registry = {
+    snapshot: () => ({ selection, providers: [
+      { id: 'local', name: 'Local ASR', location: 'host-local', preparation: { phase: 'ready' } },
+      { id: 'remote', name: 'Remote ASR', location: 'cloud', preparation: { phase: 'ready' } },
+    ] }),
+    resolve: vi.fn((input: unknown) => input),
+    transcribe: vi.fn(async () => ({ text: '你好' })),
+  }
+  const provider = new VoiceProviderDiscovery({ get: () => registry } as unknown as Context, {})
+  const fetch = vi.spyOn(globalThis, 'fetch')
+  try {
+    const local = (await provider.detect()).input!
+    selection.providerId = 'remote'
+    const wav = recording()
+    await expect(local.transcribe(wav, signal())).resolves.toBe('你好')
+    expect(registry.resolve).toHaveBeenCalledWith({ audio: wav, providerId: 'local' })
+    expect((await provider.detect()).input?.info).toEqual({ name: '随包普通话识别', location: 'host-local' })
+    expect(fetch).not.toHaveBeenCalled()
+  } finally { provider.close() }
 })
 
 test('an explicitly selected OpenAI synthesis URL still accepts its API key and default model', async () => {

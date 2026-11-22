@@ -1,6 +1,7 @@
 export const VOICE_PATH = '/personal-spirit/api/voice'
 export const RECORD_RATE = 16_000
 export const PLAY_RATE = 24_000
+export const BUNDLED_VOICE_MODEL = 'jingshen-light'
 export const MAX_UTTERANCE_SECONDS = 25
 export const MAX_WAV_BYTES = 44 + RECORD_RATE * 2 * MAX_UTTERANCE_SECONDS
 

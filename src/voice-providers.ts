@@ -1,12 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { PLAY_RATE, type VoiceAvailability, type VoiceMessage } from './voice-protocol.ts'
+import { BUNDLED_VOICE_MODEL, PLAY_RATE, type VoiceAvailability, type VoiceMessage } from './voice-protocol.ts'
+import { LocalSpeech } from './local-speech.ts'
 
 interface SpeechRegistry {
   snapshot(): {
     selection: { providerId: string; language: string }
     providers: readonly { id: string; name: string; location: 'host-local' | 'cloud'; preparation: { phase: string } }[]
   }
-  resolve(input: { audio: Uint8Array }): unknown
+  resolve(input: { audio: Uint8Array; providerId: string }): unknown
   transcribe(input: unknown, signal: AbortSignal): Promise<{ text: string }>
 }
 type Endpoint = { url: string; key?: string; location: 'host-local' | 'cloud' }
@@ -68,6 +69,7 @@ async function streamPcm(target: Endpoint, request: object, signal: AbortSignal,
 export class VoiceProviderDiscovery {
   private readonly env: NodeJS.ProcessEnv
   private readonly lifecycle = new AbortController()
+  private readonly bundled = new LocalSpeech()
   private probe?: { target: Endpoint; selection: string; until: number; result: Promise<Endpoint | undefined> }
 
   constructor(private readonly ctx: Context, env = process.env) { this.env = env }
@@ -95,11 +97,16 @@ export class VoiceProviderDiscovery {
     const registry = this.ctx.get('speechToText') as SpeechRegistry | undefined
     const snapshot = registry?.snapshot()
     const current = snapshot?.providers.find(provider => provider.id === snapshot.selection.providerId)
-    if (!registry || !current || !['ready', 'standby', 'waking'].includes(current.preparation.phase)) return null
-    return {
-      info: { name: current.name, location: current.location },
-      transcribe: async (audio, signal) => (await registry.transcribe(registry.resolve({ audio }), signal)).text,
+    if (registry && current?.location === 'host-local' && ['ready', 'standby', 'waking'].includes(current.preparation.phase)) {
+      return {
+        info: { name: current.name, location: current.location },
+        transcribe: async (audio, signal) => (await registry.transcribe(registry.resolve({ audio, providerId: current.id }), signal)).text,
+      }
     }
+    return this.bundled.available('asr') ? {
+      info: { name: '随包普通话识别', location: 'host-local' },
+      transcribe: (wav, signal) => this.bundled.transcribe(wav, signal),
+    } : null
   }
 
   private localSynthesis(kokoroRequested: boolean): Promise<Endpoint | undefined> {
@@ -147,6 +154,14 @@ export class VoiceProviderDiscovery {
     const input = this.recognition()
     if (env.SPIRIT_TTS_PROTOCOL === 'audiocpp') return { input, output: await this.audioCppSynthesis() }
     const kokoroRequested = /kokoro/iu.test(env.SPIRIT_TTS_MODEL ?? '') || (!env.SPIRIT_TTS_MODEL && /^[a-z][fm]_/iu.test(env.SPIRIT_TTS_VOICE ?? ''))
+    if (!env.SPIRIT_TTS_BASE_URL && !kokoroRequested && (!env.SPIRIT_TTS_MODEL || env.SPIRIT_TTS_MODEL === BUNDLED_VOICE_MODEL)) {
+      const output: Synthesis | null = this.bundled.available('tts') ? {
+        info: { name: '小肥鱼 · 轻声普通话', model: BUNDLED_VOICE_MODEL, voice: 'xiaoyu', location: 'host-local' },
+        stream: (message, signal) => this.bundled.synthesize({ text: message.text,
+          speed: message.tone === 'serious' ? 0.95 : message.tone === 'playful' ? 1.04 : 1 }, signal),
+      } : null
+      return { input, output }
+    }
     const target = env.SPIRIT_TTS_BASE_URL ? endpoint(env.SPIRIT_TTS_BASE_URL, env.SPIRIT_TTS_API_KEY)
       : await this.localSynthesis(kokoroRequested)
     if (!target) return { input, output: null }
@@ -175,5 +190,5 @@ export class VoiceProviderDiscovery {
     }
   }
 
-  close(): void { this.lifecycle.abort() }
+  close(): void { this.lifecycle.abort(); this.bundled.close() }
 }

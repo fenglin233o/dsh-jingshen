@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import { MAX_WAV_BYTES, RECORD_RATE, type VoiceAvailability, type VoiceDelivery, type VoiceEvent, type VoiceMessage } from './voice-protocol.ts'
+import { BUNDLED_VOICE_MODEL, MAX_WAV_BYTES, RECORD_RATE, type VoiceAvailability, type VoiceDelivery, type VoiceEvent, type VoiceMessage } from './voice-protocol.ts'
 import { VoiceProviderDiscovery, type VoiceProviders } from './voice-providers.ts'
 import type { VoiceCut, VoiceSource } from './voice-native.ts'
 
@@ -72,6 +72,77 @@ function speechChunks(text: string, limit: number): string[] {
   return chunks
 }
 
+const mandarinWords = new Intl.Segmenter('zh', { granularity: 'word' })
+const primeSpeech = /[\p{Script=Han}a-z0-9]/iu
+const primeSpeechCharacters = /[\p{Script=Han}a-z0-9]/giu
+const primeSentenceEnd = /[。！？!?；;….\r\n]/u
+const primePunctuation = /[。！？!?；;….\r\n，、,:：]+[）】》」』”’"')\]]*[ \t]*/gu
+const joinedLatinText = /https?:\/\/[a-z0-9][a-z0-9./_~%?#@!$&'()*+=:;-]*[a-z0-9/#]|(?:[a-z]\.){2,}(?![a-z0-9])|[a-z0-9]+(?:(?:[.@:/_+'’-]|(?<=\d),(?=\d{3}(?:\D|$)))[a-z0-9]+)*/giu
+const mandarinNumber = /^[零〇一二两三四五六七八九十百千万亿]+$/u
+
+function* primeChunks(text: string): Iterable<string> {
+  // Keep email addresses, versions, numbers, and dotted abbreviations intact at a synthesis boundary.
+  const joined = new Set<number>()
+  for (const match of text.matchAll(joinedLatinText)) {
+    for (let i = match.index + 1; i < match.index + match[0].length; i++) joined.add(i)
+  }
+
+  const boundaries = new Map<number, 'word' | 'clause' | 'sentence'>()
+  for (const { segment, index, isWordLike } of mandarinWords.segment(text)) {
+    const end = index + segment.length
+    if (!isWordLike || joined.has(end)) continue
+    // The dictionary may separate a numeral from its classifier (for example, 一小段).
+    if (mandarinNumber.test(segment) && /^\p{Script=Han}/u.test(text.slice(end, end + 2))) continue
+    boundaries.set(end, 'word')
+  }
+  for (const match of text.matchAll(primePunctuation)) {
+    const end = match.index + match[0].length
+    if (!joined.has(match.index) && !joined.has(end)) {
+      boundaries.set(end, primeSentenceEnd.test(match[0]) ? 'sentence' : 'clause')
+    }
+  }
+  const ordered = [...boundaries].sort(([a], [b]) => a - b)
+  const maximum = 256 // LocalSpeech bounds each individual inference by UTF-16 length.
+  let index = 0
+  let first = true
+  for (let start = 0; start < text.length;) {
+    while (ordered[index] && ordered[index]![0] <= start) index++
+    const limit = start + (first ? 24 : 60)
+    let end = Math.min(limit, text.length)
+    let cursor = index
+    let word: number | undefined
+    let natural: number | undefined
+    for (; ordered[cursor] && ordered[cursor]![0] <= limit; cursor++) {
+      const [position, kind] = ordered[cursor]!
+      if (first) {
+        // A brief interjection should travel with the words that follow it.
+        const count = text.slice(start, position).normalize('NFKC').match(primeSpeechCharacters)?.length ?? 0
+        if (count < 3) continue
+        if (kind === 'sentence') {
+          natural = position
+          break
+        }
+        if (kind === 'clause' && position >= start + 8 && !natural) natural = position
+        if (position <= start + 18 || word === undefined) word = position
+      } else {
+        if (kind !== 'word' && position >= start + 36) natural = position
+        word = position
+      }
+    }
+    if (first && natural !== undefined) end = natural
+    else if (end < text.length) {
+      const next = ordered[cursor]?.[0] ?? text.length
+      end = natural ?? word ?? (next <= start + maximum ? next : end)
+      // Pathological unbroken tokens still need a bounded request. Keep a surrogate pair together.
+      if (/[\uDC00-\uDFFF]/u.test(text[end] ?? '')) end--
+    }
+    if (text.length <= start + maximum && !primeSpeech.test(text.slice(end).normalize('NFKC'))) end = text.length
+    const phrase = text.slice(start, end)
+    start = end
+    if (primeSpeech.test(phrase.normalize('NFKC'))) { yield phrase; first = false }
+  }
+}
+
 /** Voice belongs to the currently joined call and only observes committed delivery. */
 export class VoiceService {
   private readonly calls = new Map<string, Call>()
@@ -92,7 +163,7 @@ export class VoiceService {
     this.options.checkActive()
   }
 
-  async open(): Promise<{ id: string; input: boolean; neural: boolean }> {
+  async open(): Promise<{ id: string; input: boolean; neural: boolean; output: VoiceAvailability['output'] }> {
     this.requireActive()
     const providers = await this.providers.detect()
     this.requireActive()
@@ -101,7 +172,7 @@ export class VoiceService {
     const attachBy = setTimeout(() => this.hangup(id, '连接已过期'), 15_000)
     attachBy.unref()
     this.calls.set(id, { id, providers, attachBy, messages: new Map(), inputs: new Map(), sequence: 0, discardedThrough: 0, abort: new AbortController() })
-    return { id, input: !!providers.input, neural: !!providers.output }
+    return { id, input: !!providers.input, neural: !!providers.output, output: providers.output?.info ?? null }
   }
 
   private requireCall(id: string): Call {
@@ -173,8 +244,10 @@ export class VoiceService {
     const signal = AbortSignal.any([call.abort.signal, playback.abort.signal, caller])
     try {
       // Bound individual CPU syntheses independently of the length of the public chat message.
-      const limit = call.providers.output.info.model === 'jingshen-character' ? 80 : 1000
-      for (const text of speechChunks(message.text, limit)) {
+      const model = call.providers.output.info.model
+      const chunks = model === BUNDLED_VOICE_MODEL ? primeChunks(message.text)
+        : speechChunks(message.text, model === 'jingshen-character' ? 80 : 1000)
+      for (const text of chunks) {
         signal.throwIfAborted()
         this.requireActive()
         const stream = await call.providers.output.stream({ ...message, text }, signal)

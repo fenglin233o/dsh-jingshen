@@ -1,0 +1,180 @@
+{
+  "date": "2026-11-22",
+  "package": "dsh-jingshen",
+  "author": "fenglin",
+  "packageVersion": "0.4.1",
+  "harnessVersion": "0.2.2-rc.5",
+  "environment": "Linux x86_64, Node 24.22.3, Chromium 156, CPU. The rc.5 version was checked against npm metadata and the installed host.",
+  "baseline": {
+    "version": "0.4.0",
+    "sourceCommit": "2823388a6929cfe02d2215499e25b7cfe6e91b0f",
+    "record": "verification-0.4.0.json",
+    "recordSha256": "3fe4bdc263142b9eda4a8616787fbca4126324daa61338cb2f4f4494da078d62"
+  },
+  "build": {
+    "dependencyInstall": "npm ci",
+    "typecheck": "passed",
+    "build": "passed"
+  },
+  "unitTests": {
+    "passed": 188,
+    "failed": 0,
+    "files": 19
+  },
+  "nativeRc5": {
+    "voice": [
+      "voice interruption stops the exact native main continuation, releases phone presence, and preserves later owner input and project work"
+    ],
+    "chat": [
+      "Ask mode does not initiate an idle chat or native open opportunity",
+      "IM submits authenticated owner input to the same native main session and pages exact, deduplicated replies",
+      "Full access allows the model to independently send a new message or quietly finish the next open turn",
+      "A project can independently publish one attributed IM message without making its private native answer an IM message",
+      "Pause prevents delivery and restart preserves cursor and never requeues the same owner submission"
+    ]
+  },
+  "character": {
+    "name": "小肥鱼",
+    "voice": "xiaoyu",
+    "model": "jingshen-character",
+    "provenance": "../scripts/character-voice/voice.json",
+    "referenceSeconds": 7.92,
+    "deliveryPath": {
+      "name": "小肥鱼 · 中文动画少女声",
+      "model": "jingshen-character",
+      "voice": "xiaoyu",
+      "location": "host-local"
+    },
+    "preview": {
+      "source": "Two independently submitted public replies using the same synthesis path as the new default phone voice, joined by 0.38 seconds of silence. No pitch or playback-rate post-processing.",
+      "file": "../media/voice/xiaoyu-preview.mp3",
+      "lines": [
+        {
+          "id": "curious",
+          "tone": "playful",
+          "text": "咦，你也看见了吗？那颗小星星，刚刚眨了一下眼睛。",
+          "firstPcmMs": 2379,
+          "generatedMs": 5135,
+          "audioSeconds": 4.1125
+        },
+        {
+          "id": "gentle",
+          "tone": "gentle",
+          "text": "嗯，我在听呀。你慢慢说就好。",
+          "firstPcmMs": 2825,
+          "generatedMs": 5050,
+          "audioSeconds": 3.0842916666666667
+        }
+      ],
+      "neuralTranscript": [
+        "咦，你也看见了吗？那颗小星星刚刚眨了一下眼睛。",
+        "嗯，我在听呀，你慢慢说就好。"
+      ],
+      "transcriber": "Separate local SenseVoiceSmall. Words match after ignoring punctuation."
+    }
+  },
+  "browserPhone": {
+    "browser": "Chromium 156.0.8078.79 built on Debian GNU/Linux 13 (trixie)",
+    "ttsDiscoveryMode": "automatic, with legacy Kokoro also online on 8880",
+    "automaticEndpointModels": [
+      "jingshen-character"
+    ],
+    "simultaneousLegacyModels": [
+      "kokoro",
+      "sensevoice"
+    ],
+    "voiceStatus": {
+      "input": {
+        "name": "OpenAI 兼容语音转写",
+        "location": "host-local"
+      },
+      "output": {
+        "name": "小肥鱼 · 中文动画少女声",
+        "model": "jingshen-character",
+        "voice": "xiaoyu",
+        "location": "host-local"
+      },
+      "active": true
+    },
+    "preview": {
+      "requestedWithoutMicrophone": true,
+      "playedByBrowser": true,
+      "bytes": 91988,
+      "sha256": "0faf12c2e151c22a0ae4201629982230180de3078280375af8c6eab80853022f"
+    },
+    "fullLiveSpeech": {
+      "text": "你好，我是小肥鱼！你可以慢慢说，我就在这儿。我们先把今天最想做的一件事想清楚吧。",
+      "secondsToFirstBrowserAudio": 8.758,
+      "pcmRate": 24000,
+      "durationSeconds": 6.781,
+      "peak": 0.5904,
+      "rms": 0.0904,
+      "clippedSamples": 0,
+      "sha256": "5e8c37565f78f36eb50685e48a4751c040142127e4f94f9799b205619072c98d"
+    },
+    "interruption": {
+      "recognized": "先等一下，我想说另一件事。",
+      "fromMicReleaseToCutSeconds": 0.539,
+      "exactNativeContinuationAborted": true,
+      "unpublishedTextStayedPrivate": true,
+      "parallelProjectPreserved": true,
+      "scheduledBuffers": 93,
+      "stoppedBuffers": 16,
+      "tracks": [
+        "ended"
+      ]
+    },
+    "browserErrors": 0,
+    "microphone": "Real Chromium media stack and neural ASR, using a known Mandarin WAV as its microphone input; real synthesized PCM was played.",
+    "dialogue": "Controlled local Harness model supplied the approved conversation text.",
+    "repeat": {
+      "submitToAudioSeconds": 2.285,
+      "micReleaseToInterruptedSeconds": 0.47,
+      "chatModel": "Same deterministic protocol dialogue, real neural TTS/ASR."
+    }
+  },
+  "localVoiceSetup": {
+    "referenceSha256": "665ae5ded62991d9715554ba9a7bcbf8fbc12d9273659f8d2b5594048663d184",
+    "modelNetworkBytes": 163320194,
+    "installedModelBytes": 204106088,
+    "venvBytes": 216822681,
+    "cleanBootstrapMs": 25095,
+    "onnxStartupSeconds": 2.92,
+    "audioFormat": {
+      "rateHz": 24000,
+      "channels": 1,
+      "encoding": "s16le"
+    }
+  },
+  "workerRecovery": {
+    "disconnectBeforeAudioReplacedWorkerMs": 136,
+    "disconnectDuringAudioReplacedWorkerMs": 64,
+    "actualPcmAfterEachDisconnect": true
+  },
+  "packagedWebPreflight": [
+    "fresh official Web template installs the exact local tarball into its own profile",
+    "official browser shows a single floating fish, with the single active Spirit preset",
+    "three bundled transparent atlases are byte-exact over HTTP and support HEAD and revalidation",
+    "voice metadata, audio reference, script and preview survive real tarball installation and HTTP",
+    "real Chromium decodes and plays the shipped character demo without starting speech synthesis",
+    "browser chat sends one owner message and one authorized reply in the same native turn",
+    "an explicitly published project message shows its source, and clicking opens the private native source session",
+    "reload keeps the same hidden main session, deduplicated chat and ordinary project membership"
+  ],
+  "sha256": {
+    "lib/index.d.ts": "7a565201f46504f7457bceae3eceaab20e7fd194843e9182f01adf505ec162db",
+    "lib/client.js": "5d372278fad1f277eb214dd3720a95ffd19b644956ad9e7c7ccdced3df39438f",
+    "lib/index.js": "e6faf7d84623ee000537f9a5f6d2a08362e4257ef95fc4ad101ef9bfd9051363",
+    "scripts/character-voice/serve.py": "5bbd6af6dab771964dda882654d6440a363563e89ba8416dbab94d6eba47c1fc",
+    "scripts/character-voice/prepare.py": "f1083983b350e317b31a787d3e8569c39bbf7042b0d00ef25dd18999643a9362",
+    "scripts/character-voice/voice.json": "63361f70bb42b6d1937c9d53747e11739b606a954b52294b0e4d6b051ade422a",
+    "scripts/character-voice/xiaoyu.wav": "665ae5ded62991d9715554ba9a7bcbf8fbc12d9273659f8d2b5594048663d184",
+    "scripts/character-voice/xiaoyu.txt": "1cff904a61d072bd31b485de9b62871ed5cc3b597aea349dd61c9687607d7fd1",
+    "media/voice/xiaoyu-preview.mp3": "0faf12c2e151c22a0ae4201629982230180de3078280375af8c6eab80853022f"
+  },
+  "scope": [
+    "The character voice is an original speaker design. Neither the objective checks nor this short audition rate artistic resemblance or personal preference.",
+    "Streaming is by synthesized phrase. CPU load, hardware and the selected chat model can change the time before the first phrase.",
+    "Physical microphone capture on each machine, non-Linux platforms and commercial rights in optional third-party models are outside these runtime tests."
+  ]
+}

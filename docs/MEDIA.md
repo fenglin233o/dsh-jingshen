@@ -4,17 +4,15 @@
 
 ## 给精神打电话
 
-1. 在 Harness 的插件管理中启用带蓝色声波图标的官方“语音输入”。打开该插件详情，选择“下载并准备”，等 SenseVoiceSmall 就绪。精神复用宿主的本地识别器。[官方语音输入说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/experimental/voice-input-bundle/README.zh.md)
-2. 在插件目录运行以下命令，启动小肥鱼的中文声线服务。首次运行需要带 venv 的 Python 3.11 或更高版本和网络。模型与声码器约需下载 156 MiB，本次 Linux 安装的模型与 Python 环境合计约占 402 MiB。看到服务就绪后保留该终端，在同一台电脑启动 Harness。以后的启动会复用本机缓存。
+1. 在 DeepSeek Harness 0.2.2-rc.5 中打开小肥鱼通讯窗，选择主会话模型。点击“检查语音”可确认通话实际选用的识别和合成服务。默认合成显示“小肥鱼 · 轻声普通话（宿主本机）”。
+2. 点击“试听小肥鱼声线”可播放随包的实际合成样音，无需打开麦克风。当前默认声线是 PrimeTTS v1b 的 16 kHz 单一声线，定位为轻盈的中文女声。[听这一版的实际通话样音](../media/voice/xiaoyu-light-preview.mp3)。
+3. 点击“接通并开麦”，在浏览器中授权麦克风。开口可以打断当前朗读，也会终止该条答复仍在继续的生成。之后可以继续说话，其他项目可以继续工作。挂断会释放麦克风。
 
-   ```sh
-   npm run voice
-   ```
+默认语音在 Harness 宿主的 CPU 上运行。语音合成使用随包的 ONNX Runtime Web。录音转写使用随包的 Zipformer 中文 CTC 模型和宿主随附的 Sherpa-ONNX 运行时。普通文字聊天无需启动语音进程，首次转写或合成时才加载对应模型。默认通话无需 Python、GPU、额外模型、语音服务地址或 API 密钥。会话回复仍由你在 Harness 里选定的聊天模型生成。许可证及来源见 [语音合成声明](../media/voice/local/tts/NOTICE.txt) 和 [语音识别声明](../media/voice/local/asr/NOTICE)。
 
-3. 打开小肥鱼的通讯窗，点击“试听小肥鱼声线”即可播放随包的实际合成样音，无需打开麦克风。点击“检查语音”可以看见通话实际选用的声线。默认就绪时显示“小肥鱼 · 中文动画少女声（本机）”。
-4. 点击“接通并开麦”，在浏览器中授权麦克风。开口可以打断当前朗读，也会终止该条答复正在继续的生成。后来送入的发言与其他项目的工作可以继续，挂断会释放麦克风。
+如想让浏览器所在设备负责朗读，可在“通话输出”中选择“设备中文朗读”。只有设备已经安装普通话声线且浏览器将它标为本机服务（`localService`）时，这个选项才可用。界面显示实际选用的声线名称。麦克风转写仍由“检查语音”显示的识别服务处理。
 
-小肥鱼的普通话声线有稚气、轻盈的起音，平静说话时也保留清亮的音色。制作时用 Qwen3-TTS VoiceDesign 按文字描述生成原创录音。通话服务用这段录音和随包台词作为声线参考，每条实际交付的消息都重新合成。参考录音与合成样音随插件提供，推理权重单独下载。ZipVoice 的 Emilia 预训练权重附有非商业许可。[声线设计模型](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign) · [ZipVoice 模型与许可](https://huggingface.co/k2-fsa/ZipVoice#4-license)
+在已安装依赖的源码目录运行 `node --experimental-transform-types tests/bundled-call-smoke.mjs`，可以在自己的机器上测同一句话冷启动、连续通话时的首段耗时和完整音频时长。
 
 ### 使用现有的语音服务
 
@@ -22,14 +20,24 @@
 
 | 设置 | 用途 |
 | --- | --- |
-| `SPIRIT_ASR_BASE_URL`、`SPIRIT_ASR_MODEL`、`SPIRIT_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务；默认使用已就绪的官方宿主识别器 |
+| `SPIRIT_ASR_BASE_URL`、`SPIRIT_ASR_MODEL`、`SPIRIT_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务。未指定地址时，可继续使用 Harness 已选且可用的本机语音输入，其余情况使用随包普通话识别 |
 | `SPIRIT_ASR_LANGUAGE` | 默认 `zh`；选择 `auto` 让服务自行判断语言 |
-| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型、声音与密钥。密钥仅随请求发往显式配置的地址，默认使用本机探测。响应为 24 kHz 单声道有符号 16 位小端 PCM |
+| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型、声音与密钥。密钥仅随请求发往显式配置的地址。兼容服务的响应为 24 kHz 单声道有符号 16 位小端 PCM |
 | `SPIRIT_TTS_PROTOCOL=audiocpp` | 显式选择 audio.cpp 的 BreezeTTS 2 流式接口。默认地址为 `http://127.0.0.1:8080/v1`，模型标识为 `breeze`，声库别名为 `xiaoyu` |
 | `SPIRIT_TTS_STYLE` | 在常规兼容接口中，`pace` 传送语速，`instructions` 传送表演提示 |
-| `SPIRIT_TTS_LOCAL_PROBE=0` | 关闭默认本地语音服务的自动发现。默认小肥鱼服务使用 8891 端口 |
+| `SPIRIT_TTS_LOCAL_PROBE=0` | 禁用 ZipVoice 或 Kokoro 的本地端口自动发现。显式选择 audio.cpp 时仍会检查相应服务的模型 |
 
 如要继续使用先前配置的 Kokoro，可明确设置 `SPIRIT_TTS_BASE_URL=http://127.0.0.1:8880/v1`、`SPIRIT_TTS_MODEL=kokoro` 和自己的 `SPIRIT_TTS_VOICE`。使用 Sherpa-ONNX、Kokoro v1.1 与 SenseVoice 的本机示例包括录音输入和打断测试。[本机示例](../tests/fixtures/voice-local-server.py) · [浏览器通话验收](../tests/voice-browser-smoke.mjs) · [中文模型与音色编号](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)
+
+### 继续使用 0.4.1 的 ZipVoice 声线
+
+在插件源码目录执行 `npm run voice` 并保留运行服务的终端。首次准备需要带 venv 的 Python 3.11 或更高版本和网络，后续可复用本机缓存。等服务就绪后，使用下列命令启动 Harness。
+
+```sh
+SPIRIT_TTS_MODEL=jingshen-character dsh --profile spirit --no-open
+```
+
+这条声线使用随包的原创参考录音和台词，通话服务以 ZipVoice 合成实际交付的发言。原创参考录音由 Qwen3-TTS VoiceDesign 按文字描述生成。ZipVoice 的 Emilia 预训练权重需由可选脚本单独下载，并遵循其非商业许可。[旧版合成样音](../media/voice/xiaoyu-preview.mp3) · [声线设计模型](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign) · [ZipVoice 模型与许可](https://huggingface.co/k2-fsa/ZipVoice#4-license)
 
 ### 用 audio.cpp 进行本机声线研究
 

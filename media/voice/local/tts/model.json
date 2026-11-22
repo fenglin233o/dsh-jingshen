@@ -1,0 +1,30 @@
+{
+  "type": "prime",
+  "files": [
+    "acoustic_encoder.onnx",
+    "acoustic_decoder.onnx",
+    "vocoder.onnx",
+    "meta.json",
+    "symbol_table.json",
+    "english-pronunciations.json"
+  ],
+  "weights": {
+    "upstream": "https://huggingface.co/Luigi/PrimeTTS/tree/7c47a46121d7006b2fc3cf7c49349fe5a86a9c5d/v1b_16k",
+    "storage": "float16-initializers-with-float32-casts",
+    "minimumInitializerBytes": 1024,
+    "files": {
+      "acoustic_encoder.onnx": {
+        "upstreamSha256": "611c40c1e942c1f2369e90d1ab33507ea094c2e8bb86d77227051812c6695a1f",
+        "sha256": "4bcce81636beef68d20e435d75205824cb81e5cb7d76676c770c9333a8077dc5"
+      },
+      "acoustic_decoder.onnx": {
+        "upstreamSha256": "ce58b78216779b07b60f2620f971c667ddf0bc7707f38c7179bbc6b8db817d0f",
+        "sha256": "c8781a73f95b74f5f14548659f779607afc155e1c697c1c66a384b94b460f425"
+      },
+      "vocoder.onnx": {
+        "upstreamSha256": "4818e7d63047cfbe316d43f2ae549c878b98a83ce9bf5b3839d07fef9f05b2a6",
+        "sha256": "37ed89d33a891bc6e2fa48158b77e11a5a267bd758181c0cac5d71882aef7ebf"
+      }
+    }
+  }
+}

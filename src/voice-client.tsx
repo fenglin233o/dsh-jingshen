@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { encodeVoiceWav, PcmPlayer, SpeechGate } from './voice-audio.ts'
+import { deviceVoice, speakOnDevice } from './voice-device.ts'
 import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceEvent } from './voice-protocol.ts'
 
 type Phase = 'checking' | 'idle' | 'connecting' | 'listening' | 'muted' | 'speaking' | 'transcribing' | 'disconnected'
+type OutputPreference = 'auto' | 'host' | 'system'
+type HostOutput = NonNullable<VoiceAvailability['output']>
+type CallOutput = { kind: 'host'; info?: HostOutput } | { kind: 'system'; voice: SpeechSynthesisVoice }
 export interface VoiceCallState {
   connected: boolean
   listening: boolean
@@ -11,6 +15,8 @@ export interface VoiceCallState {
   label: string
   error?: string
   availability?: VoiceAvailability
+  outputLabel?: string
+  microphoneAvailable?: boolean
 }
 interface LiveCall {
   id?: string
@@ -18,8 +24,8 @@ interface LiveCall {
   context: AudioContext
   player: PcmPlayer
   input: boolean
-  neural: boolean
-  fallback: boolean
+  preference: OutputPreference
+  output?: CallOutput
   recording: boolean
   framesPending: number
   lastSequence: number
@@ -37,10 +43,26 @@ const labels: Record<Phase, string> = {
   disconnected: '语音连接已断开',
 }
 const initialState: VoiceCallState = { connected: false, listening: false, speaking: false, phase: 'checking', label: labels.checking }
-const localVoice = (): SpeechSynthesisVoice | undefined => {
-  const voices = window.speechSynthesis?.getVoices() ?? []
-  return voices.find(voice => voice.localService && /^zh[-_]CN/iu.test(voice.lang))
-    ?? voices.find(voice => voice.localService && /^zh/iu.test(voice.lang))
+const preferenceKey = 'personal-spirit:voice-output'
+
+function loadOutputPreference(): OutputPreference {
+  try {
+    const value = window.localStorage.getItem(preferenceKey)
+    if (value === 'host' || value === 'system') return value
+  } catch { /* Browsers may block storage in embedded views. */ }
+  return 'auto'
+}
+
+function chooseOutput(preference: OutputPreference, neural: boolean, info?: HostOutput, voice?: SpeechSynthesisVoice): CallOutput | undefined {
+  if (preference !== 'system' && neural) return { kind: 'host', info }
+  if (preference !== 'host' && voice) return { kind: 'system', voice }
+}
+
+function outputLabel(output?: CallOutput): string {
+  if (!output) return '仅语音转写'
+  if (output.kind === 'system') return `设备中文朗读 · ${output.voice.name}`
+  const { info } = output
+  return info ? `${info.name}（${info.location === 'host-local' ? '宿主本机' : '远端服务'}）` : '宿主语音合成'
 }
 
 export async function voiceFetch(action: string, params: Record<string, string> = {}, init: RequestInit = {}): Promise<Response> {
@@ -69,17 +91,18 @@ export class VoiceTransport {
       const availability = await (await voiceFetch('status', {}, { signal })).json() as VoiceAvailability
       if (!signal?.aborted && !this.call) this.update({ availability, error: undefined }, 'idle')
     } catch (error) {
-      if (!signal?.aborted && !this.call) this.update({ error: error instanceof Error ? error.message : '无法检查语音服务' }, 'disconnected')
+      if (!signal?.aborted && !this.call) this.update({ availability: undefined,
+        error: error instanceof Error ? error.message : '无法检查语音服务' }, 'disconnected')
     }
   }
 
-  async connect(fallback: boolean): Promise<void> {
+  async connect(preference: OutputPreference): Promise<void> {
     if (this.call) return
     let context: AudioContext
     try { context = new AudioContext() }
     catch { this.update({ error: '浏览器不支持通话所需的 Web Audio' }, 'disconnected'); return }
     const call: LiveCall = {
-      abort: new AbortController(), context, player: new PcmPlayer(context), input: false, neural: false, fallback, recording: false,
+      abort: new AbortController(), context, player: new PcmPlayer(context), input: false, preference, recording: false,
       framesPending: 0, lastSequence: 0, pending: [], utterances: Promise.resolve(), micEpoch: 0,
     }
     this.call = call
@@ -87,12 +110,13 @@ export class VoiceTransport {
     try {
       await context.resume()
       const response = await voiceFetch('call', {}, { method: 'POST', signal: call.abort.signal })
-      const opened = await response.json() as { id: string; input: boolean; neural: boolean }
+      const opened = await response.json() as { id: string; input: boolean; neural: boolean; output?: VoiceAvailability['output'] }
       call.id = opened.id
       call.input = opened.input
-      call.neural = opened.neural
       if (this.call !== call) { this.sendHangup(call); return }
-      if (!opened.neural && !fallback && !opened.input) throw new Error('当前没有可用的语音服务')
+      const info = opened.output === undefined ? this.state.availability?.output : opened.output
+      call.output = chooseOutput(preference, opened.neural, info ?? undefined, deviceVoice())
+      if (!call.output && (preference !== 'auto' || !opened.input)) throw new Error('所选通话声线当前不可用，请检查语音')
       await this.events(call)
       if (this.call === call) this.hangup('语音连接已断开')
     } catch (error) {
@@ -124,13 +148,13 @@ export class VoiceTransport {
   private receive(call: LiveCall, event: VoiceEvent): void {
     if (this.call !== call) return
     if (event.type === 'ready') {
-      this.update({ connected: true }, 'muted')
+      this.update({ connected: true, microphoneAvailable: call.input, outputLabel: outputLabel(call.output) }, 'muted')
       if (call.input) void this.unmute()
     } else if (event.type === 'closed') {
       this.hangup(event.reason)
     } else if (event.type === 'speech') {
       call.lastSequence = Math.max(event.message.sequence, call.lastSequence)
-      if (call.recording || call.pending.length >= 8) return
+      if (!call.output || call.recording || call.pending.length >= 8) return
       call.pending.push(event.message)
       void this.speakNext(call)
     }
@@ -155,15 +179,22 @@ export class VoiceTransport {
       this.media(call, message, 'start')
     }
     try {
-      if (call.fallback) await this.systemSpeech(message, signal, start)
-      else if (call.neural) {
+      if (call.output?.kind === 'system') await speakOnDevice(message, call.output.voice, signal, start)
+      else if (call.output?.kind === 'host') {
         const response = await voiceFetch('speech', { call: call.id!, message: message.id }, { signal })
         if (!response.body || response.headers.get('x-spirit-pcm-rate') !== String(PLAY_RATE)) throw new Error('无效的语音播放数据')
         await call.player.stream(response.body, signal, start)
       }
     } catch (error) {
       if (call.playback === playback) call.player.stop()
-      if (!signal.aborted && this.call === call) this.update({ error: error instanceof Error ? error.message : '语音播放失败' })
+      if (!signal.aborted && this.call === call) {
+        const voice = call.preference === 'auto' && call.output?.kind === 'host' ? deviceVoice() : undefined
+        if (!started && voice) {
+          call.output = { kind: 'system', voice }
+          this.update({ outputLabel: outputLabel(call.output) })
+          call.pending.unshift(message)
+        } else this.update({ error: error instanceof Error ? error.message : '语音播放失败' })
+      }
     } finally {
       if (started) this.media(call, message, 'end')
       if (call.playback === playback) {
@@ -174,31 +205,6 @@ export class VoiceTransport {
         }
       }
     }
-  }
-
-  private systemSpeech(message: VoiceDelivery, signal: AbortSignal, start: () => void): Promise<void> {
-    signal.throwIfAborted()
-    return new Promise((resolve, reject) => {
-      const synth = window.speechSynthesis
-      if (!synth) { reject(new Error('设备没有可用的朗读功能')); return }
-      const speech = new SpeechSynthesisUtterance(message.text)
-      speech.lang = 'zh-CN'
-      speech.voice = localVoice() ?? null
-      if (!speech.voice) { reject(new Error('设备没有可用的本机中文朗读声音')); return }
-      speech.rate = message.tone === 'playful' ? 1.03 : message.tone === 'serious' ? 0.88 : 0.94
-      speech.pitch = message.tone === 'playful' ? 1.08 : 1.02
-      const abort = () => { synth.cancel(); done(signal.reason) }
-      const done = (error?: unknown) => {
-        signal.removeEventListener('abort', abort)
-        speech.onstart = null; speech.onend = null; speech.onerror = null
-        if (error === undefined) resolve(); else reject(error)
-      }
-      speech.onstart = start
-      speech.onend = () => done()
-      speech.onerror = () => done(new Error('设备朗读已停止'))
-      signal.addEventListener('abort', abort, { once: true })
-      synth.speak(speech)
-    })
   }
 
   private restingPhase(call: LiveCall): Phase {
@@ -316,13 +322,14 @@ export class VoiceTransport {
     this.releaseMic(call)
     this.sendHangup(call)
     void call.context.close().catch(() => {})
-    this.update({ connected: false, listening: false, speaking: false, error: reason }, reason ? 'disconnected' : 'idle')
+    this.update({ connected: false, listening: false, speaking: false, error: reason, outputLabel: undefined,
+      microphoneAvailable: undefined }, reason ? 'disconnected' : 'idle')
   }
 }
 
 const workletLoaded = new WeakSet<AudioContext>()
 
-function VoiceSample({ label }: { label: string }) {
+function VoiceSample({ src }: { src: string }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState(false)
@@ -340,8 +347,8 @@ function VoiceSample({ label }: { label: string }) {
     } else element.pause()
   }
   return <>
-    <button type="button" onClick={toggle} aria-pressed={playing}>{playing ? '停止试听' : label}</button>
-    <audio ref={audio} preload="none" src="/personal-spirit/assets/voice/xiaoyu-preview.mp3"
+    <button type="button" onClick={toggle} aria-pressed={playing}>{playing ? '停止试听' : '试听小肥鱼声线'}</button>
+    <audio ref={audio} preload="none" src={src}
       onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
     {error && <span role="status">样音播放失败</span>}
   </>
@@ -353,15 +360,18 @@ export function VoiceCall({ active = true, onCallChange }: {
 }): React.JSX.Element {
   const [state, setState] = useState(initialState)
   const [transport] = useState(() => new VoiceTransport(setState))
-  const [fallback, setFallback] = useState(false)
-  const [systemVoiceAvailable, setSystemVoiceAvailable] = useState(false)
+  const [preference, setPreference] = useState(loadOutputPreference)
+  const [systemVoice, setSystemVoice] = useState<SpeechSynthesisVoice>()
   useEffect(() => {
+    const update = () => setSystemVoice(deviceVoice())
     const synth = window.speechSynthesis
-    if (!synth) return
-    const update = () => setSystemVoiceAvailable(!!localVoice())
+    synth?.addEventListener('voiceschanged', update)
+    window.addEventListener('focus', update)
     update()
-    synth.addEventListener('voiceschanged', update)
-    return () => synth.removeEventListener('voiceschanged', update)
+    return () => {
+      synth?.removeEventListener('voiceschanged', update)
+      window.removeEventListener('focus', update)
+    }
   }, [])
   useEffect(() => {
     if (!active) { transport.hangup(); return }
@@ -371,30 +381,45 @@ export function VoiceCall({ active = true, onCallChange }: {
   }, [active, transport])
   useEffect(() => { onCallChange?.(state) }, [onCallChange, state])
   const { availability, connected } = state
-  const output = availability?.output
-  const builtInVoice = !fallback && (!output || (output.model === 'jingshen-character' && output.voice === 'xiaoyu'))
-  const canConnect = active && !!availability?.active && (!!availability.input || !!availability.output || systemVoiceAvailable && fallback)
+  const hostOutput = availability?.output ?? undefined
+  const selected = chooseOutput(preference, !!hostOutput, hostOutput, systemVoice)
+  const canConnect = active && !!availability?.active && (!!selected || preference === 'auto' && !!availability.input)
+  const sample = selected?.kind === 'host' && hostOutput?.voice === 'xiaoyu'
+    ? hostOutput.model === 'jingshen-light' ? 'xiaoyu-light-preview.mp3'
+      : hostOutput.model === 'jingshen-character' ? 'xiaoyu-preview.mp3' : undefined
+    : undefined
   return <div className="spirit-voice">
     <div className="spirit-voice-controls">
       {connected || state.phase === 'connecting'
         ? <>
-          {connected && <button type="button" onClick={() => state.listening ? transport.mute() : void transport.unmute()} disabled={!availability?.input}
+          {connected && <button type="button" onClick={() => state.listening ? transport.mute() : void transport.unmute()} disabled={!state.microphoneAvailable}
             aria-pressed={state.listening}>{state.listening ? '关麦' : '开麦'}</button>}
           <button type="button" onClick={() => transport.hangup()}>挂断</button>
         </>
-        : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(systemVoiceAvailable && fallback)}>{availability?.input ? '接通并开麦' : '接通语音'}</button>}
+        : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(preference)}>{availability?.input ? '接通并开麦' : '接通语音'}</button>}
       {!connected && state.phase !== 'connecting' && active && <>
-        <button type="button" onClick={() => void transport.check()}>检查语音</button>
-        <VoiceSample label={builtInVoice ? '试听小肥鱼声线' : '试听随包声线'} />
+        <button type="button" onClick={() => { setSystemVoice(deviceVoice()); void transport.check() }}>检查语音</button>
+        {sample && <VoiceSample key={sample} src={`/personal-spirit/assets/voice/${sample}`} />}
       </>}
     </div>
-    <p className="spirit-voice-status" role="status">{state.error ?? state.label}</p>
-    {!connected && availability && active && <div className="spirit-voice-providers">
-      {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '本机' : '远端服务'}）</span> : <span>未配置语音转写</span>}
-      {availability.output ? <span>通话声线 · {availability.output.name}（{availability.output.location === 'host-local' ? '本机' : '远端服务'}）</span>
-        : <span>语音合成服务未连接。使用内置声线时，可在插件目录运行 <code>npm run voice</code>。自选声线请检查服务地址和模型。</span>}
-      {systemVoiceAvailable && <label><input type="checkbox" checked={fallback} onChange={event => setFallback(event.target.checked)} />使用设备中文朗读（备选）</label>}
+    <p className="spirit-voice-status" data-error={!!state.error || undefined} role="status">{state.error ?? state.label}</p>
+    {!connected && state.phase !== 'connecting' && availability && active && <div className="spirit-voice-providers">
+      <label>通话输出 <select value={preference} onChange={event => {
+        const value = event.target.value as OutputPreference
+        setPreference(value)
+        try { window.localStorage.setItem(preferenceKey, value) } catch { /* Preferences still apply to the current view. */ }
+      }}>
+        <option value="auto">自动选择</option>
+        <option value="host" disabled={!hostOutput && preference !== 'host'}>宿主语音合成</option>
+        <option value="system" disabled={!systemVoice && preference !== 'system'}>设备中文朗读</option>
+      </select></label>
+      {selected ? <span>通话声线 · {outputLabel(selected)}</span>
+        : <span>{preference === 'system' ? '设备没有本机普通话声线' : preference === 'host' ? '宿主语音合成未配置'
+          : availability.input ? '通话可转写，当前没有朗读声线' : '当前没有可用的通话语音'}</span>}
+      {!systemVoice && preference !== 'system' && <span>设备没有本机普通话声线</span>}
+      {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '宿主本机' : '远端服务'}）</span>
+        : <span>未配置语音转写</span>}
     </div>}
-    {connected && <span className="spirit-voice-provider">{fallback ? '设备朗读（备选）' : availability?.output?.name ?? '仅语音转写'}</span>}
+    {connected && <span className="spirit-voice-provider" role="status">{state.outputLabel}</span>}
   </div>
 }

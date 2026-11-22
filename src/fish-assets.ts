@@ -8,6 +8,7 @@ export function registerFishAssets(ctx: Context, packageRoot: string): () => voi
   const assets = [
     ...['activity.png', 'social.png', 'social-rest.png'].map(file => ({ file: 'fish/' + file, type: 'image/png' })),
     { file: 'voice/xiaoyu-preview.mp3', type: 'audio/mpeg' },
+    { file: 'voice/xiaoyu-light-preview.mp3', type: 'audio/mpeg' },
   ]
   const routes = assets.map(({ file, type }) => {
     const path = join(packageRoot, 'media', file)

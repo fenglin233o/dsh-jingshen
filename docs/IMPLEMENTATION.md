@@ -1,6 +1,6 @@
 # 实现与验证记录
 
-本包为 `dsh-jingshen` 0.4.1，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
+本包为 `dsh-jingshen` 0.4.2，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证环境为 Linux、Node.js 24.22.3。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
 
 ## SuperAgent 基底与改造范围
 
@@ -22,6 +22,7 @@
 | `conversation.ts` | 主通讯记录、本人输入去重、跨会话发言、工作状态与社交表情 |
 | `client.tsx`、`spirit-ui.tsx`、`fish.tsx` | 工作画幅入口、通讯窗、通话中的小肥鱼和原生聊天来源提示 |
 | `voice-*.ts(x)`、`vision*.ts(x)` | 同一主会话中的可打断语音、连续本机视觉和本人明确授权的播放控制 |
+| `local-speech.ts`、`scripts/local-speech/` | 在宿主 CPU 上按需加载随包的中文识别与合成模型，分别调度、取消和回收语音进程 |
 
 保留上游任务引擎的机械可靠性，不把其状态机解释成精神发展的阶段。模型可直接工作、交谈、记忆和反思；结构化形态、检验与修订是可选的表达工具，不是每次完成工作必须通过的仪式。
 
@@ -61,7 +62,7 @@ node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite 
 
 ## 本次交付的验证结果
 
-本补丁的声线与发行包验收见 [verification.json](verification.json)。下文所述的 0.4.0 行为基线，包括自动化测试、rc.5 宿主、真实旧状态升级和 Linux 本地 Web，见 [0.4.0 验证档案](verification-0.4.0.json)。基线的本机模型适配器产生确定的协议事件，并经过宿主组装请求、调用工具、处理授权、投递与压缩等实际路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
+本补丁的离线通话、样音和性能记录见 [verification.json](verification.json)。0.4.1 的角色声线与通话档案见 [0.4.1 验证记录](verification-0.4.1.json)。下文所述的 0.4.0 行为基线，包括自动化测试、rc.5 宿主、真实旧状态升级和 Linux 本地 Web，见 [0.4.0 验证档案](verification-0.4.0.json)。基线的本机模型适配器产生确定的协议事件，并经过宿主组装请求、调用工具、处理授权、投递与压缩等实际路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
 
 另一次短对话在本机以 llama.cpp 运行 Qwen2.5-1.5B-Instruct。模型用中文作答，再独立决定原样交付。测试适配器将四种表达决定的格式交给模型，本人发言、最终答复和主会话的原生消息编号可以相互核对。放宽格式的两次尝试分别返回了普通文本和多余字段，两份草稿都没有发出。这项实测说明具体小模型对复核格式的支持会影响消息能否送达。[模型版本](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/91cad51170dc346986eccefdc2dd33a9da36ead9)
 

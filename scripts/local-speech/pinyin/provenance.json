@@ -1,0 +1,10 @@
+{
+  "package": "pinyin-pro",
+  "version": "3.29.5",
+  "tarball": "https://registry.npmjs.org/pinyin-pro/-/pinyin-pro-3.29.5.tgz",
+  "integrity": "sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==",
+  "upstreamFile": "dist/index.js",
+  "bundledFile": "index.cjs",
+  "sha256": "a488173470768ace074c3c4fffbb880e83523b3aa9598a8147c930e7f2d5c7dc",
+  "license": "MIT"
+}
