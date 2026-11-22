@@ -24,11 +24,29 @@
 | --- | --- |
 | `SPIRIT_ASR_BASE_URL`、`SPIRIT_ASR_MODEL`、`SPIRIT_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务；默认使用已就绪的官方宿主识别器 |
 | `SPIRIT_ASR_LANGUAGE` | 默认 `zh`；选择 `auto` 让服务自行判断语言 |
-| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型与声音。输入为正文，响应为 24 kHz 单声道有符号 16 位小端 PCM |
-| `SPIRIT_TTS_STYLE` | `pace` 传送语速，`instructions` 传送表演提示 |
-| `SPIRIT_TTS_LOCAL_PROBE=0` | 关闭本地语音服务自动发现。默认小肥鱼服务使用 8891 端口 |
+| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型、声音与密钥。密钥仅随请求发往显式配置的地址，默认使用本机探测。响应为 24 kHz 单声道有符号 16 位小端 PCM |
+| `SPIRIT_TTS_PROTOCOL=audiocpp` | 显式选择 audio.cpp 的 BreezeTTS 2 流式接口。默认地址为 `http://127.0.0.1:8080/v1`，模型标识为 `breeze`，声库别名为 `xiaoyu` |
+| `SPIRIT_TTS_STYLE` | 在常规兼容接口中，`pace` 传送语速，`instructions` 传送表演提示 |
+| `SPIRIT_TTS_LOCAL_PROBE=0` | 关闭默认本地语音服务的自动发现。默认小肥鱼服务使用 8891 端口 |
 
 如要继续使用先前配置的 Kokoro，可明确设置 `SPIRIT_TTS_BASE_URL=http://127.0.0.1:8880/v1`、`SPIRIT_TTS_MODEL=kokoro` 和自己的 `SPIRIT_TTS_VOICE`。使用 Sherpa-ONNX、Kokoro v1.1 与 SenseVoice 的本机示例包括录音输入和打断测试。[本机示例](../tests/fixtures/voice-local-server.py) · [浏览器通话验收](../tests/voice-browser-smoke.mjs) · [中文模型与音色编号](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)
+
+### 用 audio.cpp 进行本机声线研究
+
+在同一台电脑运行 audio.cpp v0.9.6，按官方配置示例注册 `id: "breeze"`、`family: "breeze_tts"`、`task: "tts"`、`mode: "streaming"`。将服务绑定到 `127.0.0.1`，按本机硬件选择推理后端。BreezeTTS 2 权重采用 BreezeBlue 研究和非商业许可，使用者在本机自行准备权重和参考录音。[服务配置示例](https://github.com/0xShug0/audio.cpp/blob/v0.9.6/examples/server/breeze-tts.json) · [BreezeTTS 2 模型与许可](https://huggingface.co/BreezeBlue/Breeze-TTS-2)
+
+在 audio.cpp 配置的 `voice_dir` 中放入自己制作或已获得授权的 `xiaoyu.wav`。在同目录的 `prompt_text` 中写一行 `xiaoyu|录音的逐字稿`。名字需要与 WAV 文件的主名一致。启动服务后，用以下环境变量启动 Harness。
+
+```sh
+SPIRIT_TTS_PROTOCOL=audiocpp \
+  SPIRIT_TTS_BASE_URL=http://127.0.0.1:8080/v1 \
+  SPIRIT_TTS_MODEL=breeze SPIRIT_TTS_VOICE=xiaoyu \
+  dsh --profile spirit --no-open
+```
+
+如果把推理放在局域网的另一台电脑上，请显式填写 `SPIRIT_TTS_BASE_URL`。界面会把非回环地址标为远端服务。未填写地址时只检测本机默认端口，服务不可用时显示合成不可用。
+
+合成请求分别发送正文、声库别名和 `options.instruct`。默认以参考声线自然朗读，精神选择具体语气时才加入对应说明。BreezeTTS 2 逐步输出 24 kHz 单声道 PCM，朗读可以随音频块开始。打断会取消当前 HTTP 读取，服务端停止生成的时机取决于其对连接断开的处理。[audio.cpp v0.9.6 的语音接口](https://github.com/0xShug0/audio.cpp/blob/v0.9.6/app/server/api.md#post-v1audiospeech) · [本机声库格式](https://github.com/0xShug0/audio.cpp/blob/v0.9.6/app/server/README.md#voice-library-voice_dir)
 
 ## 共享视觉
 

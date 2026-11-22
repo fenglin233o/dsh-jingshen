@@ -322,7 +322,7 @@ export class VoiceTransport {
 
 const workletLoaded = new WeakSet<AudioContext>()
 
-function VoiceSample() {
+function VoiceSample({ label }: { label: string }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState(false)
@@ -340,7 +340,7 @@ function VoiceSample() {
     } else element.pause()
   }
   return <>
-    <button type="button" onClick={toggle} aria-pressed={playing}>{playing ? '停止试听' : '试听小肥鱼声线'}</button>
+    <button type="button" onClick={toggle} aria-pressed={playing}>{playing ? '停止试听' : label}</button>
     <audio ref={audio} preload="none" src="/personal-spirit/assets/voice/xiaoyu-preview.mp3"
       onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
     {error && <span role="status">样音播放失败</span>}
@@ -371,6 +371,8 @@ export function VoiceCall({ active = true, onCallChange }: {
   }, [active, transport])
   useEffect(() => { onCallChange?.(state) }, [onCallChange, state])
   const { availability, connected } = state
+  const output = availability?.output
+  const builtInVoice = !fallback && (!output || (output.model === 'jingshen-character' && output.voice === 'xiaoyu'))
   const canConnect = active && !!availability?.active && (!!availability.input || !!availability.output || systemVoiceAvailable && fallback)
   return <div className="spirit-voice">
     <div className="spirit-voice-controls">
@@ -383,14 +385,14 @@ export function VoiceCall({ active = true, onCallChange }: {
         : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(systemVoiceAvailable && fallback)}>{availability?.input ? '接通并开麦' : '接通语音'}</button>}
       {!connected && state.phase !== 'connecting' && active && <>
         <button type="button" onClick={() => void transport.check()}>检查语音</button>
-        <VoiceSample />
+        <VoiceSample label={builtInVoice ? '试听小肥鱼声线' : '试听随包声线'} />
       </>}
     </div>
     <p className="spirit-voice-status" role="status">{state.error ?? state.label}</p>
     {!connected && availability && active && <div className="spirit-voice-providers">
       {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '本机' : '远端服务'}）</span> : <span>未配置语音转写</span>}
       {availability.output ? <span>通话声线 · {availability.output.name}（{availability.output.location === 'host-local' ? '本机' : '远端服务'}）</span>
-        : <span>小肥鱼声线服务未连接。在插件目录运行 <code>npm run voice</code> 后检查语音。</span>}
+        : <span>语音合成服务未连接。使用内置声线时，可在插件目录运行 <code>npm run voice</code>。自选声线请检查服务地址和模型。</span>}
       {systemVoiceAvailable && <label><input type="checkbox" checked={fallback} onChange={event => setFallback(event.target.checked)} />使用设备中文朗读（备选）</label>}
     </div>}
     {connected && <span className="spirit-voice-provider">{fallback ? '设备朗读（备选）' : availability?.output?.name ?? '仅语音转写'}</span>}

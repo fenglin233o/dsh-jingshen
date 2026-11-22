@@ -87,7 +87,7 @@ export class PcmPlayer {
     this.end = 0
   }
 
-  private queue(bytes: Uint8Array): void {
+  private queue(bytes: Uint8Array, offsetBytes: number, playBytes: number): void {
     const block = this.context.createBuffer(1, bytes.byteLength / 2, PLAY_RATE)
     const samples = block.getChannelData(0), pcm = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     for (let index = 0; index < samples.length; index++) samples[index] = pcm.getInt16(index * 2, true) / 32768
@@ -95,8 +95,9 @@ export class PcmPlayer {
     source.buffer = block
     source.connect(this.context.destination)
     const at = Math.max(this.end, this.context.currentTime + 0.045)
-    source.start(at)
-    this.end = at + block.duration
+    const duration = playBytes / (2 * PLAY_RATE)
+    source.start(at, offsetBytes / (2 * PLAY_RATE), duration)
+    this.end = at + duration
     this.sources.add(source)
     source.onended = () => { this.sources.delete(source); source.disconnect() }
   }
@@ -104,9 +105,21 @@ export class PcmPlayer {
   async stream(body: ReadableStream<Uint8Array>, signal: AbortSignal, started: () => void): Promise<void> {
     const reader = body.getReader()
     const chunkBytes = PLAY_RATE / 10 * 2
+    // Give the browser adjacent input samples when it resamples each block.
+    // Play only the middle so the context never appears twice in the output.
+    const contextBytes = this.context.sampleRate === PLAY_RATE ? 0 : 64
+    const lookaheadBytes = contextBytes ? 2 : 0
     let carry = new Uint8Array(0), first = true
-    const emit = (bytes: Uint8Array): void => {
-      this.queue(bytes)
+    let history: Uint8Array = new Uint8Array(0)
+    const emit = (samples: Uint8Array, following?: Uint8Array): void => {
+      if (contextBytes) {
+        const block = new Uint8Array(history.length + samples.length + (following?.length ?? 0))
+        block.set(history)
+        block.set(samples, history.length)
+        if (following?.length) block.set(following, history.length + samples.length)
+        this.queue(block, history.length, samples.length)
+        history = samples.slice(-contextBytes)
+      } else this.queue(samples, 0, samples.length)
       if (first) { first = false; started() }
     }
     try {
@@ -117,10 +130,12 @@ export class PcmPlayer {
         const bytes = new Uint8Array(carry.length + next.value.length)
         bytes.set(carry); bytes.set(next.value, carry.length)
         let index = 0
-        for (; index + chunkBytes <= bytes.length; index += chunkBytes) {
+        const pairedBytes = bytes.length - (bytes.length & 1)
+        for (; index + chunkBytes + lookaheadBytes <= pairedBytes; index += chunkBytes) {
           while (this.end - this.context.currentTime > 1.5) await wait(55, signal)
           signal.throwIfAborted()
-          emit(bytes.subarray(index, index + chunkBytes))
+          const end = index + chunkBytes
+          emit(bytes.subarray(index, end), bytes.subarray(end, Math.min(end + contextBytes, pairedBytes)))
         }
         carry = bytes.slice(index)
       }

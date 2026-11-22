@@ -15,12 +15,12 @@ const signal = () => new AbortController().signal
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
-test('an unconfigured phone discovers only the little fish and asks that service to render the delivered line', async () => {
-  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, {})
+test('a phone with no synthesis URL still discovers only the little fish even when a remote API key remains set', async () => {
+  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, { SPIRIT_TTS_API_KEY: 'unused-remote-key' })
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (url === 'http://127.0.0.1:8891/v1/models') return Response.json({ data: [{ id: 'jingshen-character' }] })
     expect(url).toBe('http://127.0.0.1:8891/v1/audio/speech')
-    expect(JSON.parse(String(init?.body))).toMatchObject({
+    expect(JSON.parse(String(init?.body))).toEqual({
       model: 'jingshen-character', voice: 'xiaoyu', input: '你也看见了吗？', response_format: 'pcm', speed: 1.06,
     })
     return new Response(Uint8Array.of(3, 4), { headers: { 'content-type': 'audio/pcm' } })
@@ -29,14 +29,15 @@ test('an unconfigured phone discovers only the little fish and asks that service
   expect(output?.info).toEqual({ name: '小肥鱼 · 中文动画少女声', model: 'jingshen-character', voice: 'xiaoyu', location: 'host-local' })
   const pcm = await output!.stream({ id: 'turn', text: '你也看见了吗？', tone: 'playful' }, signal())
   expect(await new Response(pcm).arrayBuffer()).toEqual(Uint8Array.of(3, 4).buffer)
-  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['http://127.0.0.1:8891/v1/models', 'http://127.0.0.1:8891/v1/audio/speech'])
+  for (const [, init] of fetch.mock.calls) expect(new Headers(init?.headers).get('authorization')).toBeNull()
   provider.close()
 })
 
 test('another engine cannot claim the default voice, and an explicit Kokoro choice still uses its named voice', async () => {
   const ctx = { get: () => undefined } as unknown as Context
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [{ id: 'kokoro' }] }))
-  const defaultPhone = new VoiceProviderDiscovery(ctx, {})
+  const defaultPhone = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_API_KEY: 'unused-remote-key' })
   expect((await defaultPhone.detect()).output).toBeNull()
   expect(fetch.mock.calls.map(([url]) => url)).toEqual(['http://127.0.0.1:8891/v1/models'])
   const configured = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_VOICE: 'zf_xiaobei' })
@@ -44,6 +45,107 @@ test('another engine cannot claim the default voice, and an explicit Kokoro choi
   expect(fetch.mock.lastCall?.[0]).toBe('http://127.0.0.1:8880/v1/models')
   defaultPhone.close()
   configured.close()
+})
+
+test('an explicitly selected OpenAI synthesis URL still accepts its API key and default model', async () => {
+  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, {
+    SPIRIT_TTS_BASE_URL: 'https://api.openai.com/v1', SPIRIT_TTS_API_KEY: 'test-key',
+  })
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(Uint8Array.of(3, 4), { headers: { 'content-type': 'audio/pcm' } }))
+  try {
+    const { output } = await provider.detect()
+    expect(output?.info).toMatchObject({ model: 'gpt-4o-mini-tts', voice: 'marin', location: 'cloud' })
+    await (await output!.stream({ id: 'turn', text: '我在听。' }, signal())).cancel()
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe('https://api.openai.com/v1/audio/speech')
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-key')
+    expect(JSON.parse(String(init?.body))).toEqual({ model: 'gpt-4o-mini-tts', input: '我在听。', voice: 'marin',
+      response_format: 'pcm', instructions: expect.any(String) })
+  } finally { provider.close() }
+})
+
+const breeze = { id: 'breeze', family: 'breeze_tts', task: 'tts', mode: 'streaming' }
+
+test('explicit audio.cpp sends the line, the voice alias and Breeze direction separately and keeps raw playback cancellable', async () => {
+  const ctx = { get: () => undefined } as unknown as Context
+  const provider = new VoiceProviderDiscovery(ctx, {
+    SPIRIT_TTS_PROTOCOL: 'audiocpp', SPIRIT_TTS_API_KEY: 'unused-remote-key',
+  })
+  const cancel = new AbortController()
+  const text = '咦，你也看见了吗？'
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({ data: [breeze] }))
+    .mockImplementationOnce(async (url, init) => {
+      expect(url).toBe('http://127.0.0.1:8080/v1/audio/speech')
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: 'breeze', voice: 'xiaoyu', input: text, response_format: 'pcm', stream_format: 'audio',
+        options: { instruct: expect.stringContaining('重音灵巧') },
+      })
+      expect(new Headers(init?.headers).get('accept')).toBe('application/octet-stream')
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(Uint8Array.of(3, 4))
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason), { once: true })
+        },
+      }), { headers: { 'content-type': 'application/octet-stream' } })
+    })
+  try {
+    const { output } = await provider.detect()
+    expect(fetch.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8080/v1/models')
+    expect(output?.info).toEqual({ name: 'BreezeTTS 2 · xiaoyu', model: 'breeze', voice: 'xiaoyu', location: 'host-local' })
+    const reader = (await output!.stream({ id: 'turn', text, tone: 'playful' }, cancel.signal)).getReader()
+    expect(await reader.read()).toEqual({ done: false, value: Uint8Array.of(3, 4) })
+    cancel.abort(new Error('本人打断'))
+    await expect(reader.read()).rejects.toThrow('本人打断')
+    for (const [, init] of fetch.mock.calls) expect(new Headers(init?.headers).get('authorization')).toBeNull()
+  } finally { provider.close() }
+})
+
+test('audio.cpp honors an explicit endpoint and aliases, and rejects a non-PCM response', async () => {
+  const ctx = { get: () => undefined } as unknown as Context
+  const url = 'http://192.0.2.10:18945/v1', model = 'local-breeze', voice = 'my-reference'
+  const cancelBody = vi.fn()
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({ data: [{ ...breeze, id: model }] }))
+    .mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelBody }), { headers: { 'content-type': 'text/event-stream' } }))
+    .mockResolvedValueOnce(new Response(Uint8Array.of(3, 4), { headers: { 'content-type': 'application/octet-stream' } }))
+  const provider = new VoiceProviderDiscovery(ctx, {
+    SPIRIT_TTS_PROTOCOL: 'audiocpp', SPIRIT_TTS_BASE_URL: url, SPIRIT_TTS_MODEL: model, SPIRIT_TTS_VOICE: voice,
+    SPIRIT_TTS_API_KEY: 'explicit-key',
+  })
+  try {
+    const { output } = await provider.detect()
+    expect(output?.info).toMatchObject({ model, voice, location: 'cloud' })
+    const text = '我在听！'
+    await expect(output!.stream({ id: 'turn', text }, signal())).rejects.toThrow(/24000Hz PCM/)
+    expect(cancelBody).toHaveBeenCalledOnce()
+    await (await output!.stream({ id: 'next', text, tone: 'neutral' }, signal())).cancel()
+    expect(fetch.mock.calls.map(([address]) => address)).toEqual([`${url}/models`, `${url}/audio/speech`, `${url}/audio/speech`])
+    for (const [, init] of fetch.mock.calls) expect(new Headers(init?.headers).get('authorization')).toBe('Bearer explicit-key')
+    for (const [, init] of fetch.mock.calls.slice(1)) {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model, voice, input: text,
+        options: { instruct: '沿用参考声线，自然朗读原文。' } })
+    }
+  } finally { provider.close() }
+})
+
+test('audio.cpp has no fallback when the server is down or advertises an incompatible model', async () => {
+  const ctx = { get: () => undefined } as unknown as Context
+  const env = { SPIRIT_TTS_PROTOCOL: 'audiocpp', SPIRIT_TTS_API_KEY: 'local-key' }
+  const fetch = vi.spyOn(globalThis, 'fetch')
+    .mockRejectedValueOnce(new Error('connection refused'))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...breeze, mode: 'offline' }, { ...breeze, family: 'kokoro' }] }))
+  const unavailable = new VoiceProviderDiscovery(ctx, env)
+  const incompatible = new VoiceProviderDiscovery(ctx, env)
+  try {
+    expect((await unavailable.detect()).output).toBeNull()
+    expect((await incompatible.detect()).output).toBeNull()
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(['http://127.0.0.1:8080/v1/models', 'http://127.0.0.1:8080/v1/models'])
+    for (const [, init] of fetch.mock.calls) expect(new Headers(init?.headers).get('authorization')).toBeNull()
+  } finally {
+    unavailable.close()
+    incompatible.close()
+  }
 })
 
 test('the character reads interjections with the next phrase and preserves every word of a long message', async () => {

@@ -10,6 +10,7 @@ interface SpeechRegistry {
   transcribe(input: unknown, signal: AbortSignal): Promise<{ text: string }>
 }
 type Endpoint = { url: string; key?: string; location: 'host-local' | 'cloud' }
+type ListedModel = { id?: string; family?: string; task?: string; mode?: string }
 type Recognition = { info: NonNullable<VoiceAvailability['input']>; transcribe(wav: Uint8Array<ArrayBuffer>, signal: AbortSignal): Promise<string> }
 type Synthesis = { info: NonNullable<VoiceAvailability['output']>; stream(message: VoiceMessage, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> }
 export interface VoiceProviders { input: Recognition | null; output: Synthesis | null }
@@ -17,11 +18,20 @@ export interface VoiceProviders { input: Recognition | null; output: Synthesis |
 const characterModel = 'jingshen-character'
 const characterUrl = 'http://127.0.0.1:8891/v1'
 const kokoroUrl = 'http://127.0.0.1:8880/v1'
+const audioCppUrl = 'http://127.0.0.1:8080/v1'
 const localhost = new Set(['localhost', '127.0.0.1', '[::1]'])
+const pcmTypes = ['audio/pcm', 'audio/l16', 'audio/raw', 'application/octet-stream']
 const tone = {
   gentle: { speed: 0.99, instructions: '像在和身边的朋友说悄悄话，温柔里带一点好奇，问句末尾轻轻扬起。' },
   bright: { speed: 1.06, instructions: '发现有趣的事时笑意透出来，重音灵巧，有轻有重。' },
   grounded: { speed: 0.95, instructions: '认真解释时稍慢，仍用同一个清亮的小嗓音，停顿从容。' },
+} as const
+const audioCppDirections = {
+  neutral: '',
+  warm: '语气温暖舒展。',
+  gentle: '语气柔和，停顿自然。',
+  serious: '语气认真，重音清楚。',
+  playful: '音调轻快，重音灵巧。',
 } as const
 
 export function speechStyle(message: VoiceMessage): { speed: number; instructions: string } {
@@ -42,10 +52,23 @@ function remoteFetch(target: Endpoint, route: string, init: RequestInit, signal:
   return fetch(`${target.url}/${route}`, { ...init, headers, signal, redirect: 'error' })
 }
 
+async function streamPcm(target: Endpoint, request: object, signal: AbortSignal, types = pcmTypes): Promise<ReadableStream<Uint8Array>> {
+  const result = await remoteFetch(target, 'audio/speech', {
+    method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/octet-stream' },
+    body: JSON.stringify(request),
+  }, AbortSignal.any([signal, AbortSignal.timeout(90_000)]))
+  const type = result.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
+  if (!result.ok || !result.body || !type || !types.includes(type)) {
+    await result.body?.cancel()
+    throw new Error(`语音合成服务没有返回 ${PLAY_RATE}Hz PCM 音频（HTTP ${result.status}）`)
+  }
+  return result.body
+}
+
 export class VoiceProviderDiscovery {
   private readonly env: NodeJS.ProcessEnv
   private readonly lifecycle = new AbortController()
-  private probe?: { url: string; until: number; result: Promise<Endpoint | undefined> }
+  private probe?: { target: Endpoint; selection: string; until: number; result: Promise<Endpoint | undefined> }
 
   constructor(private readonly ctx: Context, env = process.env) { this.env = env }
 
@@ -82,28 +105,53 @@ export class VoiceProviderDiscovery {
   private localSynthesis(kokoroRequested: boolean): Promise<Endpoint | undefined> {
     if (this.env.SPIRIT_TTS_LOCAL_PROBE === '0') return Promise.resolve(undefined)
     const target = endpoint(kokoroRequested ? kokoroUrl : characterUrl)
-    if (this.probe?.url === target.url && this.probe.until > Date.now()) return this.probe.result
+    return this.probeSynthesis(target, kokoroRequested ? 'kokoro' : characterModel,
+      item => kokoroRequested ? !!item.id?.toLowerCase().includes('kokoro') : item.id === characterModel)
+  }
+
+  private probeSynthesis(target: Endpoint, selection: string, matches: (item: ListedModel) => boolean): Promise<Endpoint | undefined> {
+    if (this.probe?.target.url === target.url && this.probe.target.key === target.key
+      && this.probe.selection === selection && this.probe.until > Date.now()) return this.probe.result
     const result = remoteFetch(target, 'models', {}, AbortSignal.any([this.lifecycle.signal, AbortSignal.timeout(750)]))
       .then(async response => {
         if (!response.ok) { await response.body?.cancel(); return undefined }
-        const models = await response.json() as { data?: { id?: string }[] }
-        return models.data?.some(item => kokoroRequested ? item.id?.toLowerCase().includes('kokoro') : item.id === characterModel) ? target : undefined
+        const models = await response.json() as { data?: ListedModel[] }
+        return models.data?.some(matches) ? target : undefined
       }).catch(() => undefined)
-    this.probe = { url: target.url, until: Date.now() + 3_000, result }
+    this.probe = { target, selection, until: Date.now() + 3_000, result }
     return result
+  }
+
+  private async audioCppSynthesis(): Promise<Synthesis | null> {
+    const env = this.env
+    const address = env.SPIRIT_TTS_BASE_URL
+    const target = endpoint(address || audioCppUrl, address ? env.SPIRIT_TTS_API_KEY : undefined)
+    const model = env.SPIRIT_TTS_MODEL ?? 'breeze', voice = env.SPIRIT_TTS_VOICE ?? 'xiaoyu'
+    // The v0.9.6 raw stream has no sample-rate or channel header. The advertised
+    // Breeze streaming model supplies 24 kHz mono, unlike arbitrary model aliases.
+    const confirmed = await this.probeSynthesis(target, `audiocpp:${model}`, item => item.id === model
+      && item.family === 'breeze_tts' && item.task === 'tts' && item.mode === 'streaming')
+    if (!confirmed) return null
+    return {
+      info: { name: `BreezeTTS 2 · ${voice}`, model, voice, location: confirmed.location },
+      stream: (message, signal) => streamPcm(confirmed, {
+        model, input: message.text, voice, response_format: 'pcm', stream_format: 'audio',
+        options: { instruct: `沿用参考声线，自然朗读原文。${audioCppDirections[message.tone ?? 'neutral']}` },
+      }, signal, ['application/octet-stream']),
+    }
   }
 
   async detect(): Promise<VoiceProviders> {
     const env = this.env
     this.lifecycle.signal.throwIfAborted()
     const input = this.recognition()
-    const inferredOpenAI = !env.SPIRIT_TTS_BASE_URL && !!env.SPIRIT_TTS_API_KEY
+    if (env.SPIRIT_TTS_PROTOCOL === 'audiocpp') return { input, output: await this.audioCppSynthesis() }
     const kokoroRequested = /kokoro/iu.test(env.SPIRIT_TTS_MODEL ?? '') || (!env.SPIRIT_TTS_MODEL && /^[a-z][fm]_/iu.test(env.SPIRIT_TTS_VOICE ?? ''))
     const target = env.SPIRIT_TTS_BASE_URL ? endpoint(env.SPIRIT_TTS_BASE_URL, env.SPIRIT_TTS_API_KEY)
-      : inferredOpenAI ? endpoint('https://api.openai.com/v1', env.SPIRIT_TTS_API_KEY) : await this.localSynthesis(kokoroRequested)
+      : await this.localSynthesis(kokoroRequested)
     if (!target) return { input, output: null }
     const url = new URL(target.url)
-    const officialOpenAI = inferredOpenAI || url.hostname === 'api.openai.com'
+    const officialOpenAI = url.hostname === 'api.openai.com'
     const isCharacterEndpoint = target.location === 'host-local' && url.port === '8891'
     const model = env.SPIRIT_TTS_MODEL ?? (officialOpenAI ? 'gpt-4o-mini-tts' : isCharacterEndpoint ? characterModel : 'kokoro')
     const character = model === characterModel
@@ -116,19 +164,12 @@ export class VoiceProviderDiscovery {
       input,
       output: {
         info: { name, model, voice, location: target.location },
-        stream: async (message, signal) => {
+        stream: (message, signal) => {
           const style = speechStyle(message)
-          const result = await remoteFetch(target, 'audio/speech', {
-            method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/octet-stream' },
-            body: JSON.stringify({ model, input: message.text, voice, response_format: 'pcm',
-              ...(expressive ? { instructions: style.instructions } : { speed: style.speed }) }),
-          }, AbortSignal.any([signal, AbortSignal.timeout(90_000)]))
-          const type = result.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
-          if (!result.ok || !result.body || !type || !['audio/pcm', 'audio/l16', 'audio/raw', 'application/octet-stream'].includes(type)) {
-            await result.body?.cancel()
-            throw new Error(`语音合成服务没有返回 ${PLAY_RATE}Hz PCM 音频（HTTP ${result.status}）`)
-          }
-          return result.body
+          return streamPcm(target, {
+            model, input: message.text, voice, response_format: 'pcm',
+            ...(expressive ? { instructions: style.instructions } : { speed: style.speed }),
+          }, signal)
         },
       },
     }
