@@ -47,7 +47,20 @@ test('Prime gives a short natural first clause to playback and groups the rest',
     expect(f.phrases).toEqual([first])
     await drain(speech)
     expect(f.phrases.join('')).toBe(text)
-    expect(f.phrases.slice(1, -1).every(phrase => phrase.length >= 36 && phrase.length <= 60)).toBe(true)
+    expect(f.phrases[1]?.length).toBeLessThanOrEqual(21)
+    expect(f.phrases[2]?.length).toBeLessThanOrEqual(32)
+    expect(f.phrases.slice(3, -1).every(phrase => phrase.length >= 31 && phrase.length <= 52)).toBe(true)
+  } finally { f.close() }
+})
+
+test('Prime stages the phrases that follow the first audio instead of synthesizing a long second block', async () => {
+  const f = await openPrime()
+  try {
+    const text = '我们先把正在做的事情理顺，再一起选出今天最值得完成的一步。如果手边还有几件事没有想清楚，也可以先在这里停一会儿，把问题说具体。等你准备好，我们就从你最关心的那件事开始。'
+    await drain(f.deliver('staged', text))
+    expect(f.phrases.slice(0, 2)).toEqual(['我们先把正在做的事情理顺，', '再一起选出今天最值得完成的一步。'])
+    expect(f.phrases[2]?.length).toBeLessThanOrEqual(32)
+    expect(f.phrases.join('')).toBe(text)
   } finally { f.close() }
 })
 

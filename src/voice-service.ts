@@ -104,10 +104,16 @@ function* primeChunks(text: string): Iterable<string> {
   const ordered = [...boundaries].sort(([a], [b]) => a - b)
   const maximum = 256 // LocalSpeech bounds each individual inference by UTF-16 length.
   let index = 0
-  let first = true
+  let spoken = 0
+  let previousLength = 0
   for (let start = 0; start < text.length;) {
     while (ordered[index] && ordered[index]![0] <= start) index++
-    const limit = start + (first ? 24 : 60)
+    const first = spoken === 0
+    // Give synthesis time to get ahead of playback before sending longer spans.
+    const budget = first ? 24 : spoken === 1 ? Math.min(21, Math.max(9, previousLength + 5))
+      : spoken === 2 ? Math.min(32, Math.max(20, previousLength + 12)) : 52
+    const limit = start + budget
+    const naturalFloor = start + Math.ceil(budget * 0.6)
     let end = Math.min(limit, text.length)
     let cursor = index
     let word: number | undefined
@@ -125,7 +131,7 @@ function* primeChunks(text: string): Iterable<string> {
         if (kind === 'clause' && position >= start + 8 && !natural) natural = position
         if (position <= start + 18 || word === undefined) word = position
       } else {
-        if (kind !== 'word' && position >= start + 36) natural = position
+        if (kind !== 'word' && position >= naturalFloor) natural = position
         word = position
       }
     }
@@ -139,7 +145,12 @@ function* primeChunks(text: string): Iterable<string> {
     if (text.length <= start + maximum && !primeSpeech.test(text.slice(end).normalize('NFKC'))) end = text.length
     const phrase = text.slice(start, end)
     start = end
-    if (primeSpeech.test(phrase.normalize('NFKC'))) { yield phrase; first = false }
+    const pronounceable = phrase.normalize('NFKC').match(primeSpeechCharacters)?.length ?? 0
+    if (pronounceable) {
+      yield phrase
+      previousLength = pronounceable
+      spoken++
+    }
   }
 }
 

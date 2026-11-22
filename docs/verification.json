@@ -24,7 +24,7 @@
     "typecheck": "passed",
     "build": "passed",
     "testFiles": 23,
-    "testsPassed": 220,
+    "testsPassed": 221,
     "testsFailed": 0
   },
   "localSpeech": {
@@ -68,9 +68,9 @@
     "sample": {
       "text": "嗯，你说，我在听。刚才有点走神了，你接着说呀。",
       "file": "../media/voice/xiaoyu-light-preview.mp3",
-      "previewMp3Sha256": "30b88dc15aa549fe26d5237433c6b97455aaf852aa7053db064db7de1930f83a",
-      "sourceWavSha256": "b6b84afb7b2164121eb978cc93f3a683f7f99ee8e84811a86f5da5c6c03fb1ae",
-      "sourceAudioSeconds": 4.96,
+      "previewMp3Sha256": "daf0782d14d6da8b576fa0150abcaaa65f85edb885a27ec561e08de42463b224",
+      "sourceWavSha256": "70f7a0c52ad782de6c62f121a3f0dc6f2f4a57d972abcefd65952fb63350b30d",
+      "sourceAudioSeconds": 4.832,
       "source": "VoiceService.open, attach, delivered, speech. MP3 encoding only; no pitch, pacing or audio postprocessing of the call PCM."
     },
     "serviceBenchmarks": {
@@ -79,29 +79,33 @@
         {
           "id": "preview",
           "text": "嗯，你说，我在听。刚才有点走神了，你接着说呀。",
-          "firstPcmMS": 1107.69,
-          "lastPcmMS": 1729.83,
-          "speechSeconds": 4.96,
+          "firstPcmMS": 2025.02,
+          "lastPcmMS": 2675.33,
+          "speechSeconds": 4.832,
           "arrivals": [
             {
-              "ms": 1107.69,
+              "ms": 2025.02,
               "bytes": 96768
             },
             {
-              "ms": 1729.83,
-              "bytes": 141312
+              "ms": 2427.23,
+              "bytes": 78336
+            },
+            {
+              "ms": 2675.33,
+              "bytes": 56832
             }
           ]
         },
         {
           "id": "breeze-same",
           "text": "嗯，我在听，你慢慢说。",
-          "firstPcmMS": 591.31,
-          "lastPcmMS": 591.31,
+          "firstPcmMS": 484.65,
+          "lastPcmMS": 484.65,
           "speechSeconds": 2.176,
           "arrivals": [
             {
-              "ms": 591.31,
+              "ms": 484.65,
               "bytes": 104448
             }
           ]
@@ -109,17 +113,21 @@
         {
           "id": "preview-warm",
           "text": "嗯，你说，我在听。刚才有点走神了，你接着说呀。",
-          "firstPcmMS": 438.64,
-          "lastPcmMS": 1049.05,
-          "speechSeconds": 4.96,
+          "firstPcmMS": 418.11,
+          "lastPcmMS": 1508.63,
+          "speechSeconds": 4.832,
           "arrivals": [
             {
-              "ms": 438.64,
+              "ms": 418.11,
               "bytes": 96768
             },
             {
-              "ms": 1049.05,
-              "bytes": 141312
+              "ms": 1023.04,
+              "bytes": 78336
+            },
+            {
+              "ms": 1508.63,
+              "bytes": 56832
             }
           ]
         }
@@ -135,7 +143,8 @@
       "speechSeconds": 3.68
     },
     "extraProductionDependenciesSince041": [],
-    "bundledMandarinFrontend": "../scripts/local-speech/pinyin/provenance.json"
+    "bundledMandarinFrontend": "../scripts/local-speech/pinyin/provenance.json",
+    "phraseScheduling": "A short first phrase and progressively longer subsequent phrases let playback and synthesis overlap. Complete public text remains available in the conversation."
   },
   "linuxChecks": {
     "chromiumPcmPlayback": {
