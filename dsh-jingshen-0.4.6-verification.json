@@ -1,0 +1,156 @@
+{
+  "version": "0.4.6",
+  "commit": "ae7b9d5bc771f760c0509253172846aca6d79b10",
+  "build": {
+    "platform": "Linux x86_64",
+    "node": "24.22.3",
+    "chromium": "156.0.8078.79",
+    "command": "npm run check",
+    "testFiles": 25,
+    "testsPassed": 279,
+    "testsFailed": 0,
+    "typecheck": "passed",
+    "build": "passed",
+    "serverSha256": "7d1388a92979d5f288fbf21b88a432a08003d21ab27d5f9f901fc6c3132603c8",
+    "clientSha256": "72e26d9847d7548c3f9893f698015d388c4222c89b25e2383cab2e4910e13102"
+  },
+  "harness": "0.2.2-rc.5",
+  "platform": "Linux x86_64",
+  "model": "local deterministic fixture-one",
+  "upgrade": {
+    "archives": [
+      {
+        "version": "0.4.5",
+        "sha256": "2467a76eab70992a3602702bdd278ff166c2a8f1ca92ef096ae638c3cd44e864"
+      },
+      {
+        "version": "0.4.6",
+        "sha256": "a0fb839ef0b39a9c517cedc9d620a0f01a44be833862c47b4697c67422f5aa3d"
+      }
+    ],
+    "verified": [
+      "0.4.5 installed by dsh and produced native owner and assistant turns in Chromium using the deterministic model fixture",
+      "Same profile retains chat, permissions, paused autonomy, an unfinished intention and project history and membership, with one installed package and one selectable Spirit preset",
+      "The official Chinese Plugins screen shows one installed card titled 精神",
+      "The upgraded browser continues the same history once, and chat, permissions, resumed autonomy, unfinished intention, and project history and membership survive restart"
+    ]
+  },
+  "phone": {
+    "Mandarin": {
+      "input": {
+        "name": "随包中英语音识别",
+        "location": "host-local"
+      },
+      "output": {
+        "name": "小肥鱼 · 轻声普通话",
+        "model": "jingshen-light",
+        "voice": "xiaoyu",
+        "location": "host-local"
+      },
+      "recognition": [
+        "你好你听得见我吗",
+        "等一下我想说另一件事"
+      ],
+      "checksums": {
+        "server": "7d1388a92979d5f288fbf21b88a432a08003d21ab27d5f9f901fc6c3132603c8",
+        "client": "72e26d9847d7548c3f9893f698015d388c4222c89b25e2383cab2e4910e13102",
+        "asrModel": {
+          "decoder.onnx": "c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5",
+          "encoder.int8.onnx": "3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe",
+          "joiner.int8.onnx": "82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba",
+          "tokens.txt": "ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf",
+          "weights-01.data": "5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b",
+          "weights-02.data": "4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4"
+        },
+        "vadWasm": "f81d42b107a2198a3aa0f8ae4f27a8b7a2cc4218896adae5ff82012178eff727"
+      },
+      "microphoneTracksAfterHangup": [
+        "ended"
+      ],
+      "completedAudioSubmissions": 2,
+      "successfulInterrupts": 2,
+      "audioBlocks": 29,
+      "viewport": "390x844 mobile viewport and desktop Chromium"
+    },
+    "automatic bilingual": {
+      "input": {
+        "name": "随包中英语音识别",
+        "location": "host-local"
+      },
+      "output": {
+        "name": "smoke-bilingual · slt",
+        "model": "smoke-bilingual",
+        "voice": "slt",
+        "location": "host-local"
+      },
+      "recognition": [
+        "你好你听得见我吗",
+        "WAIT A MOMENT I HAVE ANOTHER QUESTION",
+        "帮我 CHECK THE CALENDAR 然后告诉我几点"
+      ],
+      "checksums": {
+        "server": "7d1388a92979d5f288fbf21b88a432a08003d21ab27d5f9f901fc6c3132603c8",
+        "client": "72e26d9847d7548c3f9893f698015d388c4222c89b25e2383cab2e4910e13102",
+        "asrModel": {
+          "decoder.onnx": "c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5",
+          "encoder.int8.onnx": "3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe",
+          "joiner.int8.onnx": "82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba",
+          "tokens.txt": "ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf",
+          "weights-01.data": "5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b",
+          "weights-02.data": "4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4"
+        },
+        "vadWasm": "f81d42b107a2198a3aa0f8ae4f27a8b7a2cc4218896adae5ff82012178eff727"
+      },
+      "microphoneTracksAfterHangup": [
+        "ended"
+      ],
+      "completedAudioSubmissions": 3,
+      "successfulInterrupts": 2,
+      "audioBlocks": 66,
+      "viewport": "390x844 mobile viewport and desktop Chromium",
+      "deliveredText": [
+        "听得见，我在这里。你可以慢慢说。我们先把刚才想到的事情记下来，再一起看看哪一件最想动手。说到一半想换话题也没关系，等你准备好我再接着听。今天还很长，我们可以留一点时间给临时冒出来的念头，也可以从眼前这一件小事做起。",
+        "Of course. Tell me your other question. I am listening.",
+        "我会 check the calendar，然后告诉你时间。"
+      ]
+    }
+  },
+  "vision": {
+    "servedClient": "72e26d9847d7548c3f9893f698015d388c4222c89b25e2383cab2e4910e13102",
+    "metadataFrames": 39,
+    "modelImages": 1,
+    "visionControlsOnlyInPhone": true,
+    "minimizingStoppedCameraTracks": true,
+    "leavingPhoneStoppedCameraTracks": true,
+    "hangingUpStoppedCameraTracks": true,
+    "pauseStoppedTracks": true,
+    "closingPageEndedLease": true
+  },
+  "reportsSha256": {
+    "zh": "01f269bb313a85139d9d9df7c5362737159ab9051002e7637dfd006b36e4921e",
+    "en": "504479b93393889341f50d04e59a8b9cd47a3368391634c130e1a968462b9923",
+    "vision": "f6f435e6db7b869445a2183a1a9d6f9e53cb098c86be1334f3de7d5cd87b2b26",
+    "upgrade": "a72c50d3e582a9e01846fe8afff2b00e586e4f63bcfc777feea8201a3478c3b4"
+  },
+  "limits": [
+    "No credentialed Breeze production call in this release. Prior production synthesis evidence is in verification-0.4.3.json.",
+    "The browser ran on Linux with file-backed media, including a 390x844 viewport. No physical microphone/phone, physical loudspeaker, mobile OS, Electron Desktop, Windows or macOS run.",
+    "The supplied incident archive contains no microphone recording. Corpus results do not measure the original user utterances.",
+    "Live model reasoning, long-term learning, real signed-in video sites and the browser extension toolbar were not exercised."
+  ],
+  "bundledASR": {
+    "decoder.onnx": "c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5",
+    "encoder.int8.onnx": "3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe",
+    "joiner.int8.onnx": "82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba",
+    "tokens.txt": "ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf",
+    "weights-01.data": "5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b",
+    "weights-02.data": "4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4"
+  },
+  "assets": {
+    "dsh-jingshen-0.4.6-installed.png": "09b710c7364c9658387435a617f1037d57b7158c0e4e8a460b8e75239f19a1fd",
+    "dsh-jingshen-0.4.6-local-voice-assets.tgz": "9592f716257cbc3657a325c8720444adebeee59f102c806c537051e2baa10748",
+    "dsh-jingshen-0.4.6-phone.png": "ff501ce23adbec5fc4abb3b273a824dd20115b7ac666598d4a6d9f04573ad31d",
+    "dsh-jingshen-0.4.6-source.zip": "e3bd28303dfcffde3ae9bde310f363d5979557e30a72cc8e37481bbd42486816",
+    "dsh-jingshen-0.4.6.tgz": "a0fb839ef0b39a9c517cedc9d620a0f01a44be833862c47b4697c67422f5aa3d"
+  }
+}
