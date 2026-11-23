@@ -1,0 +1,26 @@
+name: Attach verified 0.4.3 release files
+on:
+  push:
+    branches: [release-assets/v0.4.3]
+    paths: [.github/workflows/attach-0.4.3.yml]
+permissions:
+  contents: write
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check release files
+        run: |
+          sha256sum --check <<'SUMS'
+          d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b  dsh-jingshen-0.4.3.tgz
+          ac8fc6f5b31cb9e202cd29b35483658a01edd73d4287dc7a1bc9b754ba6876c0  dsh-jingshen-0.4.3-source.zip
+          36179ce372758d63e32ca70a5644deccebed45a3876590e294d349adf297b0b5  dsh-jingshen-0.4.3-local-voice-assets.tgz
+          56a3509dad589d6f22ad1b6276b4f90f64252775a1d7ab546e23128f912b30e6  dsh-jingshen-0.4.3-verification.json
+          SUMS
+      - name: Attach packages to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload v0.4.3 dsh-jingshen-0.4.3.tgz dsh-jingshen-0.4.3-source.zip dsh-jingshen-0.4.3-local-voice-assets.tgz dsh-jingshen-0.4.3-verification.json --repo "$GITHUB_REPOSITORY"
