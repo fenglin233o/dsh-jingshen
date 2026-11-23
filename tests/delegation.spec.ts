@@ -13,7 +13,7 @@ test('Cordis unload discards native late settlement and only cancels the managed
     return {
       id: id as SessionId,
       status: 'idle',
-      session: { append: vi.fn() },
+      session: { header: { origin: id.includes('worker') ? 'subagent' : 'root' }, append: vi.fn() },
       inbox: {
         nextTurn, nextStep: [],
         remove(messageId: MessageId) {

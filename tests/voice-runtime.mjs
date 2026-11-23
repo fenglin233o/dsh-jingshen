@@ -31,7 +31,7 @@ export async function verifyVoiceRuntime({ origin, mainId, request, inspect, tur
   try {
     await event('ready')
     const workspace = await request('/project-workspace', {})
-    const project = await request('/native-create', { workspaceId: workspace.id, agentPreset: 'dsh-spirit' })
+    const project = await request('/native-create', { workspaceId: workspace.id, agentPreset: 'dsh-jingshen' })
     const heldProject = { id: randomUUID(), hold: true, reply: '项目未中断。' }
     await turn(project.sessionId, heldProject, false)
     await poll(async () => (await trace()).held.includes(heldProject.id), 'parallel project native generation is active')
@@ -39,7 +39,7 @@ export async function verifyVoiceRuntime({ origin, mainId, request, inspect, tur
     const text = '这段已经送达，可以开口打断。'
     const withheld = `voice-undelivered-${randomUUID()}`
     const earlier = { id: randomUUID(), hold: true, reply: withheld, calls: [
-      { name: 'spirit_reply', args: { disposition: 'continue', text, reason: '先交付第一段，再继续这次主会话推理。' } },
+      { name: 'jingshen_reply', args: { disposition: 'continue', text, reason: '先交付第一段，再继续这次主会话推理。' } },
     ] }
     const accepted = await request('/chat', { requestId: randomUUID(), text: scriptText(earlier) }, false)
     const delivered = (await event('speech')).message

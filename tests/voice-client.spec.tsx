@@ -43,6 +43,8 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
   status?: () => Pick<VoiceAvailability, 'output' | 'setup'>
   saveBreezeKey?: (key: string) => Promise<void>
   speech?: (signal?: AbortSignal | null) => Response
+  microphone?: () => Promise<MediaStream>
+  addWorklet?: () => Promise<void>
 } = {}) {
   const spoken: Utterance[] = [], calls: string[] = []
   let list = detectedVoices
@@ -53,17 +55,35 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
   })
   vi.stubGlobal('speechSynthesis', synth)
   vi.stubGlobal('SpeechSynthesisUtterance', Utterance)
+  const micPort = { onmessage: null as ((event: MessageEvent<Float32Array>) => void) | null, close: vi.fn() }
+  if (options.microphone) {
+    const navigatorWithMic = Object.create(navigator, { mediaDevices: { value: { getUserMedia: options.microphone } } })
+    vi.stubGlobal('navigator', navigatorWithMic)
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL() { return 'blob:mic-worklet' }
+      static revokeObjectURL() {}
+    })
+    vi.stubGlobal('AudioWorkletNode', class {
+      port = micPort
+      connect() {}
+      disconnect() {}
+    })
+  }
   const stopAudio = vi.fn()
   vi.stubGlobal('AudioContext', class {
     sampleRate = PLAY_RATE
     currentTime = 0
     destination = {}
+    audioWorklet = options.microphone ? { addModule: options.addWorklet ?? (async () => {}) } : undefined
     async resume() {}
     async close() {}
+    createMediaStreamSource() { return { connect() {}, disconnect() {} } }
+    createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} } }
     createBuffer(_channels: number, samples: number) { return { getChannelData: () => new Float32Array(samples) } }
     createBufferSource() { return { connect() {}, disconnect() {}, start() {}, stop: stopAudio } }
   })
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined
+  let sequence = 0
   const emit = (event: VoiceEvent) => stream?.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'))
   vi.stubGlobal('fetch', async (path: string, init?: RequestInit) => {
     const action = new URL(path, 'http://localhost').pathname.split('/').at(-1)!
@@ -89,14 +109,14 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
   document.body.append(element)
   const root = createRoot(element)
   roots.push(root)
-  await act(async () => root.render(<VoiceCall saveBreezeKey={options.saveBreezeKey} />))
+  await act(async () => root.render(<VoiceCall optionsOpen saveBreezeKey={options.saveBreezeKey} />))
   function find(label: string) {
     const button = [...element.querySelectorAll('button')].find(item => item.textContent === label)
     if (!button) throw new Error(`Missing button: ${label}`)
     return button
   }
   return {
-    element, calls, spoken, synth, find, stopAudio,
+    element, calls, spoken, synth, find, stopAudio, micPort,
     click: (label: string) => act(async () => find(label).click()),
     voices: (next: SpeechSynthesisVoice[]) => act(async () => {
       list = next
@@ -107,7 +127,7 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
       select.value = value
       select.dispatchEvent(new Event('change', { bubbles: true }))
     }),
-    speak: (text: string) => act(async () => emit({ type: 'speech', message: { id: text, text, sequence: 1 } })),
+    speak: (text: string) => act(async () => emit({ type: 'speech', message: { id: text, text, sequence: ++sequence } })),
     disconnect: () => act(async () => { const controller = stream; stream = undefined; controller?.close() }),
   }
 }
@@ -116,6 +136,56 @@ it('只选浏览器标记为本机的普通话声线，优先中国大陆普通�
   expect(localMandarinVoice([online, voice('广东话', 'zh-HK', true), voice('粤语', 'zh-yue', true)])).toBeUndefined()
   expect(localMandarinVoice([online, taiwan, mainland])).toBe(mainland)
   expect(localMandarinVoice([voice('普通话 macrolanguage', 'zh', true), voice('系统默认', 'cmn-CN', true, true)])?.name).toBe('系统默认')
+})
+
+it('关麦立即停止正在初始化的采集，随后重新开麦只安装一次采集处理器', async () => {
+  const worklet = Promise.withResolvers<void>()
+  const addWorklet = vi.fn(() => worklet.promise)
+  const track = () => Object.assign(new EventTarget(), { stop: vi.fn() })
+  const first = track(), second = track()
+  const microphone = vi.fn().mockResolvedValueOnce({ getTracks: () => [first], getAudioTracks: () => [first] })
+    .mockResolvedValueOnce({ getTracks: () => [second], getAudioTracks: () => [second] })
+  const view = await mount(host, [], { input, microphone, addWorklet })
+  await view.click('接通并开麦')
+  await view.click('关麦')
+  expect(first.stop).toHaveBeenCalledTimes(1)
+  expect(view.micPort.onmessage).toBeNull()
+  await view.click('开麦')
+  await act(async () => worklet.resolve())
+  expect(addWorklet).toHaveBeenCalledTimes(1)
+  expect(view.micPort.onmessage).toBeTypeOf('function')
+  await view.click('关麦')
+  expect(second.stop).toHaveBeenCalledTimes(1)
+  expect(view.micPort.onmessage).toBeNull()
+  expect(view.calls).not.toContain('audio')
+})
+
+it('麦克风关闭时仍可打断朗读且保持关闭', async () => {
+  const view = await mount(null, [mainland])
+  await view.click('接通语音')
+  await view.speak('需要打断的文字')
+  await act(async () => view.spoken[0]?.onstart?.())
+  await view.click('打断朗读')
+  expect(view.synth.cancel).toHaveBeenCalledTimes(1)
+  expect(view.calls).toContain('interrupt')
+  expect(view.find('打断朗读').disabled).toBe(true)
+  expect(view.element.querySelector('.spirit-voice-status')?.textContent).toBe('已关闭麦克风')
+})
+
+it('设备朗读按顺序播放快速送达的每条消息', async () => {
+  const view = await mount(null, [mainland])
+  await view.click('接通语音')
+  const replies = Array.from({ length: 40 }, (_, index) => `消息 ${index}`)
+  for (const reply of replies) await view.speak(reply)
+  for (const [index, reply] of replies.entries()) {
+    expect(view.spoken[index]?.text).toBe(reply)
+    await act(async () => {
+      view.spoken[index]?.onstart?.()
+      view.spoken[index]?.onend?.()
+    })
+  }
+  expect(view.spoken).toHaveLength(replies.length)
+  expect(view.calls.filter(action => action === 'playing')).toHaveLength(replies.length * 2)
 })
 
 it('浏览器晚到的本机普通话声线可自动接通，不向宿主发送合成请求，断开清除播放', async () => {

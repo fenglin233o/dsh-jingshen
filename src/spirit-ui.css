@@ -39,6 +39,7 @@
   transition: transform 220ms var(--move), filter 220ms var(--move);
   -webkit-tap-highlight-color: transparent;
 }
+.jingshen-launcher[hidden] { display: none; }
 .jingshen-launcher::after {
   position: absolute;
   z-index: -1;
@@ -286,9 +287,6 @@
   background: #fdfdff;
 }
 .jingshen-footer[hidden] { display: none; }
-.jingshen-media { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; min-height: 34px; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
-.jingshen-media[data-call] { justify-content: center; min-height: 58px; margin-bottom: 0; }
-.jingshen-media button { min-height: 28px; }
 .jingshen-compose-box { display: flex; align-items: flex-end; gap: 6px; padding: 4px; border: 1px solid #d7dff2; border-radius: 15px; background: #f8faff; }
 .jingshen-compose-box:focus-within { border-color: #9298d8; background: #fff; }
 .jingshen-compose textarea {
@@ -350,28 +348,90 @@
   flex: 1;
   display: grid;
   position: relative;
-  place-items: center;
-  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: center;
+  justify-items: center;
   overflow: hidden;
-  padding: 12px 20px 20px;
-  background: radial-gradient(ellipse at 50% 43%, #f8fbff 0 17%, #e9edfd 56%, #eef3ff 100%);
+  padding: 12px 16px 21px;
+  border-radius: 0 0 23px 23px;
+  background: radial-gradient(ellipse at center, #fbfdff 0 17%, #e9edfd 56%, #eef3ff 100%);
 }
-.jingshen-call-scene::before {
+.jingshen-call-orbit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+}
+.jingshen-call-orbit::before {
   position: absolute;
-  top: 44%;
+  top: 50%;
   left: 50%;
-  width: min(75%, 540px);
+  width: min(84cqh, 75cqw, 470px);
   aspect-ratio: 1;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   border: 1px solid #d9e2fa;
-  box-shadow: 0 0 0 28px #f9faff70, 0 0 0 29px #d9e2fa88;
+  box-shadow: 0 0 0 24px #f9faff70, 0 0 0 25px #d9e2fa88;
   content: "";
 }
-.jingshen-call-orbit { position: relative; width: min(75%, 590px); height: 82%; min-height: 0; justify-self: center; }
-.jingshen-call-scene p { position: relative; margin: 0; color: var(--muted); font-size: 12px; }
-.jingshen-mediation-badge { white-space: nowrap; color: #5360a0; font-size: 11px; padding: 2px 6px; border: 1px solid #b2bde444; border-radius: 6px; background: #8599ee12; }
+.jingshen-call-orbit .spirit-fish {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(100%, 510px);
+  height: min(100%, 510px);
+  transform: translate(-50%, -50%);
+}
+.spirit-voice {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  z-index: 1;
+  min-width: 0;
+  max-width: min(100%, 520px);
+  text-align: center;
+}
+.spirit-voice-status {
+  margin: 0;
+  padding: 3px 9px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: #f5f7fdd9;
+  font-size: 12px;
+}
+.spirit-voice-status[data-error] { color: #934929; }
+.spirit-voice-controls { display: flex; justify-content: center; gap: 10px 18px; }
+.spirit-voice-controls > button {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  min-width: 56px;
+  padding: 1px 0;
+  border: 0;
+  border-radius: 12px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 12px;
+}
+.spirit-voice-controls > button:disabled { opacity: .46; }
+.spirit-voice-controls > button > svg {
+  width: 48px;
+  height: 48px;
+  padding: 13px;
+  border-radius: 50%;
+  background: #fbfcff;
+  box-shadow: 0 2px 7px #384a921d;
+}
+.spirit-voice-controls > button:not(:disabled):hover > svg { background: #dfe6ff; }
+.spirit-voice-controls > button[data-mic-on] > svg { background: #d8edeb; }
+.spirit-voice-controls > button[data-action="connect"] > svg { background: #4d57b1; color: #fff; }
+.spirit-voice-controls > button[data-action="hangup"] > svg { background: #a13558; color: #fff; }
+.spirit-voice-controls > button[data-action="connect"]:not(:disabled):hover > svg { background: #3d479b; }
+.spirit-voice-controls > button[data-action="hangup"]:hover > svg { background: #882a48; }
+.jingshen-icon:is([aria-expanded="true"], [data-capturing]) { background: #e2e9ff; color: var(--navy); }
+.jingshen-mediation-badge { display: inline-block; margin: 4px 0 0; white-space: nowrap; color: inherit; font-size: 11px; padding: 2px 6px; border: 1px solid #8599ee55; border-radius: 6px; background: #8599ee16; }
 @media (max-width: 650px), (pointer: coarse) and (max-width: 950px) {
   .jingshen-launcher {
     right: max(11px, env(safe-area-inset-right));
@@ -403,8 +463,7 @@
     transform: none;
   }
   .jingshen-window::after { display: none; }
-  .jingshen-call-scene { padding-inline: 0; }
-  .jingshen-call-orbit { width: min(110%, 500px); }
+  .jingshen-call-scene { padding-bottom: 15px; }
   .jingshen-header { min-height: 62px; border-radius: 20px 20px 0 0; }
   .jingshen-header-actions { gap: 2px; }
   .jingshen-icon { width: 40px; height: 40px; }
@@ -421,62 +480,59 @@
   .jingshen-window { animation: none; }
   .jingshen-launcher { transition: none; }
 }
-.jingshen-media .spirit-voice { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
-.jingshen-media .spirit-voice-controls { display: flex; flex-wrap: wrap; gap: 4px; }
-.jingshen-media .spirit-voice-status, .jingshen-media .spirit-voice-provider { margin: 0; font-size: 10px; color: var(--muted); }
-.jingshen-media .spirit-voice-providers { flex-basis: 100%; display: flex; gap: 4px 7px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
-.jingshen-media .spirit-voice-setup { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 9px; font-size: 11px; color: var(--muted); }
-.jingshen-media .spirit-voice-setup p { flex-basis: 100%; margin: 0; }
-.jingshen-media .spirit-voice-setup a { color: #394889; text-underline-offset: 2px; }
-.jingshen-media .spirit-voice-setup form { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.jingshen-media .spirit-voice-setup input { box-sizing: border-box; max-width: 100%; }
-.jingshen-media .spirit-voice-providers label { display: inline-flex; gap: 3px; align-items: center; }
-.jingshen-media .spirit-voice-providers select {
-  max-width: 100%;
-  min-height: 24px;
-  border: 1px solid #dce4f6;
-  border-radius: 6px;
-  background: #f7f9ff;
-  color: #394889;
-  font: inherit;
-}
-.jingshen-media :is(.spirit-vision, .spirit-voice) button {
-  padding: 3px 7px;
-  min-height: 27px;
-  border: 1px solid #dce4f6;
-  border-radius: 7px;
-  background: #f7f9ff;
-  color: #394889;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.jingshen-media :is(.spirit-vision, .spirit-voice) button:hover:not(:disabled) { background: #e7edff; }
-.jingshen-media :is(.spirit-vision, .spirit-voice) button:disabled { opacity: .6; }
-.jingshen-media[data-call] .spirit-voice { gap: 5px 8px; }
-.jingshen-media[data-call] .spirit-voice-controls button { min-height: 33px; padding-inline: 11px; }
-.jingshen-media[data-call] .spirit-voice-controls button:last-child { color: #8e3c61; border-color: #efd8e1; background: #fff5f9; }
-.jingshen-media[data-call] .spirit-voice-status:not([data-error]) { display: none; }
-.jingshen-media .spirit-vision-controls {
-  z-index: 5;
+.spirit-voice-options, .spirit-vision-controls {
   position: absolute;
-  inset: auto 11px 80px;
-  max-height: min(60%, 360px);
-  padding: 11px;
+  z-index: 5;
+  inset: 8px 12px auto;
+  width: min(360px, calc(100% - 24px));
+  margin-inline-start: auto;
+  max-height: calc(100% - 20px);
+  padding: 12px;
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid #ccd7ee;
   border-radius: 13px;
   background: #fdfdff;
   box-shadow: 0 10px 35px #25366026;
+  color: var(--muted);
+  text-align: start;
+  font-size: 12px;
 }
-.jingshen-media[data-call] .spirit-vision-controls { bottom: 58px; }
-.jingshen-media .spirit-vision-controls legend { color: var(--ink); font-weight: 650; }
-.jingshen-media .spirit-vision-controls fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
-.jingshen-media .spirit-vision-controls fieldset p { margin: 3px 0 8px; }
-.jingshen-media .spirit-vision-controls label { display: grid; gap: 3px; margin-block: 8px; }
-.jingshen-media .spirit-vision-controls input { max-width: 100%; color: var(--ink); }
-.jingshen-media .spirit-vision-controls button { margin: 0 4px 4px 0; }
-.jingshen-media .spirit-vision-controls video { max-width: 100%; max-height: 180px; border-radius: 8px; }
+.spirit-vision-controls { inset-block-start: 69px; max-height: calc(100% - 83px); }
+.spirit-vision[hidden], .spirit-vision-controls[hidden], .spirit-voice-options[hidden] { display: none; }
+.spirit-voice-options h2 { margin: 0 0 7px; color: var(--ink); font-size: 14px; font-weight: 650; }
+.spirit-voice-options p { margin: 0; }
+.spirit-voice-option-actions, .spirit-voice-setup, .spirit-voice-setup form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.spirit-voice-providers { display: grid; gap: 5px; margin-top: 8px; }
+.spirit-voice-providers label { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.spirit-voice-setup { margin-top: 8px; }
+.spirit-voice-setup :is(p, form) { flex-basis: 100%; }
+.spirit-voice-setup a { color: #394889; text-underline-offset: 2px; }
+.spirit-voice-setup :is(input, label) { max-width: 100%; }
+:is(.spirit-voice-options, .spirit-vision-controls) :is(button, select) {
+  max-width: 100%;
+  padding: 3px 8px;
+  min-height: 28px;
+  border: 1px solid #dce4f6;
+  border-radius: 7px;
+  background: #f7f9ff;
+  color: #394889;
+  font: inherit;
+}
+:is(.spirit-voice-options, .spirit-vision-controls) button:hover:not(:disabled) { background: #e7edff; }
+:is(.spirit-voice-options, .spirit-vision-controls) button:disabled { opacity: .6; }
+.spirit-vision-controls legend { color: var(--ink); font-weight: 650; }
+.spirit-vision-controls fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.spirit-vision-controls fieldset p { margin: 3px 0 8px; }
+.spirit-vision-controls label { display: grid; gap: 3px; margin-block: 8px; }
+.spirit-vision-controls input { max-width: 100%; color: var(--ink); }
+.spirit-vision-controls button { margin: 0 4px 4px 0; }
+.spirit-vision-controls video { max-width: 100%; max-height: 180px; border-radius: 8px; }
 .jingshen-management > .spirit { padding: 13px; border-radius: 0 0 23px 23px; overflow: visible; }
 .jingshen-management .spirit-content { padding: 0; }
 .jingshen-management .spirit-card { border-color: #dfe5f1; padding: 13px 16px; }

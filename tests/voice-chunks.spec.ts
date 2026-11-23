@@ -25,7 +25,7 @@ async function openPrime() {
   expect(call.output?.model).toBe(BUNDLED_VOICE_MODEL)
   service.attach(call.id, () => {})
   return {
-    phrases,
+    phrases, service, call,
     deliver(id: string, text: string) {
       service.delivered({ id, text })
       return service.speech(call.id, id, new AbortController().signal)[Symbol.asyncIterator]()
@@ -37,6 +37,32 @@ async function openPrime() {
 async function drain(speech: AsyncIterator<Uint8Array>) {
   while (!(await speech.next()).done) { /* consume each phrase */ }
 }
+
+test('unplayed deliveries survive a burst across the old history limit and retire after playback', async () => {
+  const f = await openPrime()
+  try {
+    const replies = Array.from({ length: 40 }, (_, index) => ({ id: String(index), text: `消息 ${index}` }))
+    for (const reply of replies) f.service.delivered(reply)
+    for (const { id } of replies) {
+      await drain(f.service.speech(f.call.id, id, new AbortController().signal)[Symbol.asyncIterator]())
+      f.service.playing(f.call.id, id, false)
+    }
+    expect(f.phrases).toEqual(replies.map(reply => reply.text))
+    await expect(f.service.speech(f.call.id, '0', new AbortController().signal)[Symbol.asyncIterator]().next()).rejects.toThrow()
+  } finally { f.close() }
+})
+
+test('a client that never retires deliveries receives an explicit close at the backlog limit', async () => {
+  const f = await openPrime()
+  try {
+    const call = await f.service.open()
+    const closed: string[] = []
+    f.service.attach(call.id, event => { if (event.type === 'closed') closed.push(event.reason) })
+    const text = '字'.repeat(100_000)
+    for (let index = 0; index < 45; index++) f.service.delivered({ id: String(index), text })
+    expect(closed).toEqual(['待朗读消息过多，通话已挂断'])
+  } finally { f.close() }
+})
 
 test('Prime gives a short natural first clause to playback and groups the rest', async () => {
   const f = await openPrime()

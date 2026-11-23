@@ -19,6 +19,6 @@ export function packageRoot(): string {
     }
     directory = dirname(directory)
   }
-  throw new Error('Spirit / SuperAgent packaged assets root not found')
+  throw new Error('dsh-jingshen / SuperAgent packaged assets root not found')
 }
 export const packagePath = (...parts: string[]): string => join(packageRoot(), ...parts)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { MediaIcon } from './media-icons.tsx'
 import { bindCapturedVideo, type CapturedVideoControls } from './vision-tab.ts'
 import { permittedVideoUrl, videoHost } from './vision-url.ts'
 
@@ -17,7 +18,15 @@ type Capture = {
   pendingFrame?: { capturedAt: number; mediaTime?: number; commandId?: string }
   polling?: boolean; sending?: boolean; lastPollAt?: number
 }
-type Props = { paused?: boolean; minimized?: boolean; onWatchingChange?: (watching: boolean) => void }
+type Props = {
+  paused?: boolean
+  minimized?: boolean
+  hidden?: boolean
+  open: boolean
+  panelId: string
+  onToggle: () => void
+  onWatchingChange?: (watching: boolean) => void
+}
 
 async function post<T>(route: string, data: unknown, options: { signal?: AbortSignal; keepalive?: boolean } = {}): Promise<T> {
   const response = await fetch(apiPath + route, {
@@ -75,11 +84,10 @@ function clearPlayer(value: Capture, element: HTMLVideoElement): void {
   value.downloadedUrl = undefined
 }
 
-export function VisionControls({ paused = false, minimized = false, onWatchingChange }: Props) {
+export function VisionControls({ paused = false, minimized = false, hidden, open, panelId, onToggle, onWatchingChange }: Props) {
   const [status, setStatus] = useState('')
   const [source, setSource] = useState<Source>()
   const [watching, setWatching] = useState(false)
-  const [open, setOpen] = useState(false)
   const [starting, setStarting] = useState(false)
   const [canSend, setCanSend] = useState(false)
   const [labels, setLabels] = useState<string[]>([])
@@ -370,9 +378,11 @@ export function VisionControls({ paused = false, minimized = false, onWatchingCh
     }
   }
 
-  return <div className="spirit-vision">
-    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{source ? '视觉已开启' : '视觉'}</button>
-    <div hidden={!open} className="spirit-vision-controls">
+  return <div className="spirit-vision" hidden={hidden}>
+    <button type="button" className="jingshen-icon" data-capturing={!!source || undefined}
+      title={source ? '视觉已开启' : '视觉'} aria-label={source ? '视觉已开启' : '视觉'}
+      aria-controls={panelId} aria-expanded={open} onClick={onToggle}><MediaIcon name="camera" /></button>
+    <div id={panelId} hidden={!open} className="spirit-vision-controls">
       {!source && <fieldset disabled={paused || starting}>
         <legend>本机视觉</legend>
         <p>开启后，浏览器在本机识别物体。精神可以读取识别标签和位置。单独发送画面会把该帧存入主会话，并交给当前模型。</p>

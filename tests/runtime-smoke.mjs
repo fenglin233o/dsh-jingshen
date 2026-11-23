@@ -113,6 +113,12 @@ export async function apply(ctx) {
     flushHookInstalled = false
   }
   const visionFixture = process.env.SPIRIT_TEST_IMAGE_FIXTURE === '1'
+  const mediaFixture = process.env.SPIRIT_TEST_BROWSER_MEDIA === '1' && [
+    [/今天.*先做什么/u, '我在。我们先把手上的资料放在一起，挑一件今天能推进的事。'],
+    [/整理.*笔记/u, '好呀。先写下今天最重要的一件事，再把笔记按主题归在一起。我可以帮你把下一步列清楚。'],
+    [/听得见.*吗/u, '听得见，我在这里。你可以慢慢说。我们先把刚才想到的事情记下来，再一起看看哪一件最想动手。说到一半想换话题也没关系，等你准备好我再接着听。今天还很长，我们可以留一点时间给临时冒出来的念头，也可以从眼前这一件小事做起。'],
+    [/等一下.*另一件事/u, '好，你说。我先听听这件新的事，再和你想想下一步怎么安排。'],
+  ]
   const models = ['fixture-one', 'fixture-two'].map(id => ({ provider: PROVIDER, id, name: `Deterministic protocol fixture: ${id}`,
     inputModalities: visionFixture ? ['text', 'image'] : ['text'], context: { contextWindow: 1_000_000 }, defaultMaxTokens: 4096,
     reasoning: { efforts: [{ id: 'low', name: 'Fixture low' }, { id: 'high', name: 'Fixture high' }], defaultEffort: 'low' } }))
@@ -126,15 +132,18 @@ export async function apply(ctx) {
     }
     async *stream(options) {
       options.signal?.throwIfAborted()
+      const toolName = name => options.tools?.some(tool => tool.name === `jingshen_${name}`) ? `jingshen_${name}` : `spirit_${name}`
       if (options.purpose === 'spirit-mediation') {
-        const contents = options.messages.map(textOf).join('\n')
-        const args = contents.includes('PROBE_REVIEW_CHANGE')
+        const { publicDraft, lastDelivery } = JSON.parse(options.messages[0].content[0].text)
+        const args = publicDraft.includes('PROBE_REVIEW_CHANGE')
           ? { disposition: 'revise', text: '我重新看过了，这才是我准备交付的答复。', reason: '按本轮实际请求修订测试草稿。' }
-          : contents.includes('PROBE_REVIEW_QUIET') ? { disposition: 'silent', reason: '本轮选择安静。' }
+          : publicDraft.includes('PROBE_REVIEW_QUIET') || publicDraft === lastDelivery && !publicDraft.includes('PROBE_REVIEW_REPEAT')
+            ? { disposition: 'silent', reason: '本轮选择安静。' }
+          : publicDraft.includes('PROBE_REVIEW_RECONSIDER') ? { disposition: 'publish', reconsider: true, reason: '交付这一条后还有新的问题值得考虑。' }
           : { disposition: 'publish', reason: '已核对这条测试答复与本轮输入。' }
         trace.push({ at: new Date().toISOString(), sessionId: options.sessionId, provider: options.provider, model: options.model,
           purpose: options.purpose, tools: (options.tools ?? []).map(tool => tool.name), decision: args.disposition })
-        const block = { type: 'tool-call', id: randomUUID(), name: 'spirit_review_reply', arguments: JSON.stringify(args) }
+        const block = { type: 'tool-call', id: randomUUID(), name: toolName('review_reply'), arguments: JSON.stringify(args) }
         yield { type: 'block-start', index: 0, blockType: block.type }
         yield { type: 'tool-call-delta', index: 0, id: block.id, name: block.name, argumentsDelta: block.arguments }
         yield { type: 'block-end', index: 0, block }
@@ -143,6 +152,8 @@ export async function apply(ctx) {
       }
       const latest = options.messages.findLast(message => message.role === 'user'
         && ['user', 'spirit', 'agent-message', 'subagent-settled'].includes(message.source?.kind))
+      const afterLatest = options.messages.slice(options.messages.lastIndexOf(latest) + 1)
+      const isReconsidering = afterLatest.some(message => message.source?.kind === 'spirit-mediation')
       if (options.purpose !== 'compaction' && overflowOnce.delete(options.sessionId)) {
         throw new LlmError('Controlled provider reports its context window exhausted', 'CONTEXT_WINDOW_EXCEEDED')
       }
@@ -155,23 +166,24 @@ export async function apply(ctx) {
       let next
       if (input?.packet && autonomyBehavior === 'ack') {
         const id = callId(input.packet.dispatchId, 0)
-        if (!seen.has(id)) next = { id, name: 'spirit_decide', args: { opportunityId: input.packet.opportunity.id,
+        if (!seen.has(id)) next = { id, name: toolName('decide'), args: { opportunityId: input.packet.opportunity.id,
           dispatchId: input.packet.dispatchId, decision: 'refrain', reason: '确定性运行时测试记录了显式回执；这不代表真实模型已经学习或判断了事情' } }
       } else if (input?.packet && autonomyBehavior === 'say') {
         const id = callId(input.packet.dispatchId, 0)
-        if (!seen.has(id)) next = { id, name: 'spirit_say', args: { text: '开放机会中由模型选择发出的本地测试消息。' } }
+        if (!seen.has(id)) next = { id, name: toolName('say'), args: { text: '开放机会中由模型选择发出的本地测试消息。' } }
       } else if (input?.packet && autonomyBehavior === 'vision-play' && visionPlayUrl) {
         const id = callId(input.packet.dispatchId, 0)
         if (!seen.has(id)) {
-          next = { id, name: 'spirit_watch', args: { action: 'play', url: visionPlayUrl } }
+          next = { id, name: toolName('watch'), args: { action: 'play', url: visionPlayUrl } }
           visionPlayUrl = undefined
         }
       } else if (input?.script) {
         const index = (input.script.calls ?? []).findIndex((call, index) => !seen.has(callId(input.script.id, index))
-          && !(call.name === 'spirit_reply' && options.messages.some(message => message.role === 'assistant' && textOf(message) === call.args.text)))
+          && !(/^(?:jingshen|spirit)_reply$/.test(call.name)
+            && options.messages.some(message => message.role === 'assistant' && textOf(message) === call.args.text)))
         if (index >= 0) next = { ...input.script.calls[index], id: callId(input.script.id, index) }
       }
-      const heldId = input?.script?.hold ? input.script.id
+      const heldId = input?.script?.hold && (!isReconsidering || input.script.followup === undefined) ? input.script.id
         : input?.packet && autonomyBehavior === 'hold' ? input.packet.dispatchId : undefined
       const nativeImages = []
       if (visionFixture) for (const part of options.messages.flatMap(message => message.content ?? [])) {
@@ -181,6 +193,7 @@ export async function apply(ctx) {
       }
       trace.push({ at: new Date().toISOString(), sessionId: options.sessionId, provider: options.provider, model: options.model,
         reasoningEffort: options.reasoningEffort, purpose: options.purpose, tools: (options.tools ?? []).map(tool => tool.name),
+        ...(isReconsidering ? { reconsidering: true } : {}),
         ...(working ? { working } : {}), ...(input?.script ? { scriptId: input.script.id } : {}),
         ...(visionFixture ? { images: nativeImages } : {}),
         ...(next ? { call: next } : {}), ...(input?.packet ? { opportunityId: input.packet.opportunity.id, dispatchId: input.packet.dispatchId } : {}),
@@ -221,8 +234,20 @@ export async function apply(ctx) {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
+      if (input?.packet && autonomyBehavior === 'reconsider' || input?.script?.followup !== undefined && isReconsidering && !next) {
+        const text = input?.packet
+          ? isReconsidering ? '再次看过以后，我另外想到一件事。' : 'PROBE_REVIEW_RECONSIDER。这是一条完整的自主消息。'
+          : input.script.followup
+        yield { type: 'block-start', index: blockIndex, blockType: 'text' }
+        yield { type: 'text-delta', index: blockIndex, text }
+        yield { type: 'block-end', index: blockIndex, block: { type: 'text', text } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const ordinaryReply = !input && latest && mediaFixture
+        ? mediaFixture.find(([pattern]) => pattern.test(textOf(latest)))?.[1] : undefined
       const block = next ? { type: 'tool-call', id: next.id, name: next.name, arguments: JSON.stringify(next.args) }
-        : { type: 'text', text: input?.script?.reply ?? 'Controlled runtime fixture settled. No live-model reasoning was exercised.' }
+        : { type: 'text', text: input?.script?.reply ?? ordinaryReply ?? 'Controlled runtime fixture settled. No live-model reasoning was exercised.' }
       yield { type: 'block-start', index: blockIndex, blockType: block.type }
       yield next ? { type: 'tool-call-delta', index: blockIndex, id: block.id, name: block.name, argumentsDelta: block.arguments }
         : { type: 'text-delta', index: blockIndex, text: block.text }
@@ -348,7 +373,7 @@ export async function apply(ctx) {
       if (req.method === 'POST' && route === '/behavior') {
         const body = await readBody(req)
         if (visionFixture && body.autonomy === 'vision-play' && typeof body.url === 'string') visionPlayUrl = body.url
-        else if (!['ack', 'silent', 'hold', 'omit', 'say'].includes(body.autonomy)) throw new Error('Unknown fixture autonomy behavior')
+        else if (!['ack', 'silent', 'hold', 'omit', 'say', 'reconsider'].includes(body.autonomy)) throw new Error('Unknown fixture autonomy behavior')
         autonomyBehavior = body.autonomy; return json(res, 200, { autonomy: autonomyBehavior })
       }
       if (req.method === 'POST' && route === '/flush-barrier') {
@@ -404,6 +429,14 @@ function findSessionId(value) {
   return [...flatten(value)].find(item => typeof item.sessionId === 'string')?.sessionId
 }
 
+export async function installWebProfile({ binary, home, profileName, scratch, snapshot }) {
+  const run = promisify(execFile)
+  const options = { cwd: scratch, env: { ...process.env, DSH_HOME: home, npm_config_offline: 'true', DSH_TELEMETRY_DISABLED: '1' },
+    timeout: 45_000, maxBuffer: 2_000_000 }
+  await run(process.execPath, [binary, '--profile', profileName, '--from-default-profile', 'web', '--dump-config'], options)
+  await run(process.execPath, [binary, 'plugin', '--profile', profileName, 'add', `link:${snapshot}`], options)
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const runtime = resolve(args.runtime ?? '/workspace/scratch/harness-rc5')
@@ -431,26 +464,13 @@ async function main() {
   symlinkSync(join(runtime, 'node_modules/@deepseek-ai'), join(snapshot, 'node_modules/@deepseek-ai'), 'dir')
   for (const dependency of ['zod', 'proper-lockfile', '@mediapipe']) symlinkSync(join(packageSource, 'node_modules', dependency), join(snapshot, 'node_modules', dependency), 'dir')
   const binary = join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
-  if (suite === 'approval-ui') {
-    // Install through the normal Web loader so the browser serves this candidate's compiled client.
-    const run = promisify(execFile), options = { cwd: scratch, env: { ...process.env, DSH_HOME: home, npm_config_offline: 'true', DSH_TELEMETRY_DISABLED: '1' },
-      timeout: 45_000, maxBuffer: 2_000_000 }
-    await run(process.execPath, [binary, '--profile', 'spirit-runtime-test', '--from-default-profile', 'web', '--dump-config'], options)
-    await run(process.execPath, [binary, 'plugin', '--profile', 'spirit-runtime-test', 'add', `link:${snapshot}`], options)
-  } else {
-    mkdirSync(dirname(join(profile, 'node_modules', packageName)), { recursive: true })
-    symlinkSync(snapshot, join(profile, 'node_modules', packageName), 'dir')
-    symlinkSync(join(runtime, 'node_modules/@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'), 'dir')
-    writeFileSync(join(profile, 'package.json'), JSON.stringify({ name: 'dsh-profile-spirit-runtime-test', private: true,
-      dependencies: { [packageName]: `file:${snapshot}` }, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', packageName] } } }, null, 2))
-    writeFileSync(join(profile, 'cordis.yml'), '[]\n')
-  }
+  await installWebProfile({ binary, home, profileName: 'spirit-runtime-test', scratch, snapshot })
   writeFileSync(join(profile, 'cordis.patch.yml'), [
     '- id: dsh-spirit', '  config:', `    stateDir: ${JSON.stringify(state)}`, '    concurrency: 2',
     `    openIntervalMinutes: ${['open-activity', 'chat'].includes(suite) ? 0.05 : 0}`,
     '- id: agent-default-model', '  config:', `    provider: ${PROVIDER}`, '    model: fixture-one', '    reasoningEffort: low',
     ...['llm-deepseek', 'llm-deepseek-account', 'llm-pi-ai', 'session-title-llm'].flatMap(id => [`- id: ${id}`, '  disabled: true']),
-    '- insert:', '    - id: spirit-runtime-fixture', `      name: ${JSON.stringify(FILE)}`, '',
+    '- insert:', '    - id: spirit-runtime-fixture', `      name: ${JSON.stringify(join(snapshot, 'tests/runtime-smoke.mjs'))}`, '',
   ].join('\n'))
   const token = randomBytes(32).toString('hex'), checks = [], nativeArtifacts = []
   let child, origin, browserUrl, bootNumber = 0, processError
@@ -542,7 +562,7 @@ async function main() {
       return
     }
     if (suite === 'mediation') {
-      await verifyMediationRuntime({ mainId, state, request, run, inspect, turn, evidence, complete, poll, findSessionId, scriptText })
+      await verifyMediationRuntime({ mainId, state, scratch, browserUrl, request, run, inspect, turn, evidence, complete, poll, findSessionId, scriptText })
       return
     }
     if (suite === 'open-activity') {
@@ -560,18 +580,18 @@ async function main() {
       const input = stateAfterOpen.events.find(event => event.type === 'user/message' && event.data.source?.requestId === opened.dispatchId)
       assert.equal(input?.data.source.kind, 'spirit')
       assert.equal(input.data.source.fromSessionId, mainId)
-      assert(stateAfterOpen.events.some(event => event.type === 'tool/call' && event.data.name === 'spirit_decide'))
+      assert(stateAfterOpen.events.some(event => event.type === 'tool/call' && event.data.name === 'jingshen_decide'))
       assert(sqlValues('spirit_autonomy_decision').some(value => value.opportunityId === opened.id && value.decision === 'refrain'))
       evidence('full access offers an event-free idle opportunity and preserves the native self-authored input', { opportunityId: opened.id })
       const orientation = (await request('/state', undefined, false)).orientation
-      const quiet = await run(mainId, 'spirit_orient', { expectedRevision: orientation.revision, outlook: 'quiet fixture',
+      const quiet = await run(mainId, 'jingshen_orient', { expectedRevision: orientation.revision, outlook: 'quiet fixture',
         reason: 'exercise the idle admission policy', attention: 'quiet' })
       assert.equal(quiet.result.attention, 'quiet')
       const quietCount = openOpportunities().length
       await delay(intervalWindow)
       assert.equal(openOpportunities().length, quietCount, 'Quiet suppresses spontaneous opportunities across another due interval')
       evidence('quiet orientation suppresses further event-free model requests')
-      const reopened = await run(mainId, 'spirit_orient', { expectedRevision: quiet.result.revision, outlook: 'reopened fixture',
+      const reopened = await run(mainId, 'jingshen_orient', { expectedRevision: quiet.result.revision, outlook: 'reopened fixture',
         reason: 'exercise the owner pause boundary', attention: 'open' })
       assert.equal(reopened.result.attention, 'open')
       await request('/control', { action: 'pause' }, false)
@@ -589,7 +609,7 @@ async function main() {
       await request('/permissions', { mode: 'ask' }, false)
       await poll(async () => (await inspect(mainId)).status === 'idle', 'revoked opportunity exits the native request')
       assert.equal((await request('/release-stream', { scriptId: accepting.dispatchId })).released, false)
-      const normal = await run(mainId, 'spirit_read', {})
+      const normal = await run(mainId, 'jingshen_read', {})
       assert(normal.log.events.some(event => event.type === 'user/message' && event.data.id === normal.log.messageId
         && event.data.source.kind === 'user'))
       assert(normal.log.events.some(event => event.type === 'user/message' && event.data.source.kind === 'spirit'
@@ -628,8 +648,8 @@ async function main() {
     const initialMain = await inspect(mainId)
     const presets = await request('/presets')
     const spiritPresets = presets.presets.filter(value =>
-      value.id === 'dsh-personal-spirit' || value.id === 'dsh-spirit' || value.name?.includes('精神'))
-    assert.deepEqual(spiritPresets.map(value => value.id), ['dsh-spirit'], 'The real Web selector lists one Spirit preset')
+      ['dsh-jingshen', 'dsh-spirit', 'dsh-personal-spirit'].includes(value.id) || value.name?.includes('精神'))
+    assert.deepEqual(spiritPresets.map(value => value.id), ['dsh-jingshen'], 'The real Web selector lists one Spirit preset')
     assert.equal(spiritPresets[0].broken, undefined)
     evidence('the native preset selector offers a single Spirit entry')
     assert.equal(initialMain.header.cwd, join(state, 'workspace'))
@@ -638,40 +658,41 @@ async function main() {
     nativeArtifacts.push({ name: 'initial-native-session-metadata', model: initialMain.model, header: initialMain.header,
       workspaces: initialWorkspaces, events: initialMain.events })
     const projectWorkspace = await request('/project-workspace', {})
-    assert.equal(initialMain.preset, 'dsh-spirit')
+    assert.equal(initialMain.preset, 'dsh-jingshen')
     const ordinary = await request('/native-create', { sessionId: mainId, workspaceId: projectWorkspace.id })
     assert.notEqual(ordinary.sessionId, mainId, 'Restored workspace navigation cannot claim the main session')
     const ordinaryBlank = await request('/native-create', { sessionId: ordinary.sessionId, workspaceId: projectWorkspace.id })
     assert.equal(ordinaryBlank.sessionId, ordinary.sessionId)
     const mainRoster = (await request(`/roster?sessionId=${encodeURIComponent(mainId)}`)).tools
-    assert(['spirit_read', 'spirit_intent', 'spirit_decide', 'spirit_sessions', 'bash', 'read'].every(name => mainRoster.includes(name)))
+    assert(['jingshen_read', 'jingshen_intent', 'jingshen_decide', 'jingshen_sessions', 'bash', 'read'].every(name => mainRoster.includes(name)))
     const explicitlyStandard = await request('/native-create', { sessionId: ordinary.sessionId, workspaceId: projectWorkspace.id, agentPreset: 'standard' })
     assert.equal(explicitlyStandard.sessionId, ordinary.sessionId)
     assert.equal((await inspect(ordinary.sessionId)).preset, 'standard', 'Explicit owner preset selection survives ordinary workspace reuse')
     await request('/native-create', { sessionId: ordinary.sessionId, workspaceId: projectWorkspace.id })
     assert.equal((await inspect(ordinary.sessionId)).preset, 'standard')
-    assert.equal((await inspect(mainId)).preset, 'dsh-spirit')
+    assert.equal((await inspect(mainId)).preset, 'dsh-jingshen')
     const unmanaged = await request('/native-create', { sessionId: `unmanaged-fixture-${randomUUID()}`, agentPreset: 'standard',
       permissionPreset: 'workspace-write', workspaceId: projectWorkspace.id })
     assert.equal((await inspect(unmanaged.sessionId)).preset, 'standard', 'A different native preset stays outside Spirit')
-    assert(!(await request(`/roster?sessionId=${encodeURIComponent(unmanaged.sessionId)}`)).tools.includes('spirit_intent'))
+    assert(!(await request(`/roster?sessionId=${encodeURIComponent(unmanaged.sessionId)}`)).tools.includes('jingshen_intent'))
     nativeArtifacts.push({ name: 'native-workspace-and-private-main', ordinaryBlank, explicitlyStandard, unmanaged, mainRoster })
-    const mounted = await run(mainId, 'spirit_read', {})
+    const mounted = await run(mainId, 'jingshen_read', {})
     evidence('full package mounts and native agent executes Spirit tools', { mainId, runtimeVersion })
-    assert(mounted.log.events.some(event => event.type === 'tool/call' && event.data.name === 'spirit_read'))
+    assert(mounted.log.events.some(event => event.type === 'tool/call' && event.data.name === 'jingshen_read'))
     const roster = (await request('/trace')).trace.find(value => value.sessionId === mainId)?.tools ?? []
-    assert(roster.includes('spirit_read') && roster.includes('spirit_sessions') && roster.includes('spirit_intent') && roster.includes('spirit_decide'))
+    assert(roster.includes('jingshen_read') && roster.includes('jingshen_sessions') && roster.includes('jingshen_intent') && roster.includes('jingshen_decide'))
+    assert(!roster.some(name => name.startsWith('spirit_')), 'The model sees a single set of 精神 tools')
     assert(roster.includes('bash') && roster.includes('read'), 'Native Spirit preset capabilities remain mounted after implicit blank reuse')
-    assert(!roster.some(name => /^spirit_(control|permissions|permission|set_access|set_state)$/.test(name)), 'Owner permission and activity setters must not be model tools')
+    assert(!roster.some(name => /^(?:jingshen|spirit)_(control|permissions|permission|set_access|set_state)$/.test(name)), 'Owner permission and activity setters must not be model tools')
     evidence('model tool roster exposes continuity tools without owner control setters')
     evidence('normal Workspace navigation cannot take the private main, while standard and participating project blanks retain their own presets')
     await request('/permissions', { mode: 'full' }, false)
     const nativeConversation = await request('/native-create', { workspaceId: projectWorkspace.id })
-    assert.equal(nativeConversation.agentPreset, 'dsh-spirit')
+    assert.equal(nativeConversation.agentPreset, 'dsh-jingshen')
     const personalId = nativeConversation.sessionId
-    const state1 = (await run(mainId, 'spirit_orient', { expectedRevision: 0, outlook: 'check-source-before-attribution', reason: 'fixture shared practice', attention: 'quiet' })).result
+    const state1 = (await run(mainId, 'jingshen_orient', { expectedRevision: 0, outlook: 'check-source-before-attribution', reason: 'fixture shared practice', attention: 'quiet' })).result
     assert.equal(state1.revision, 1)
-    const shared = (await run(mainId, 'spirit_intent', { statement: 'shared fixture work', reason: 'cross-session carry', state: 'waiting',
+    const shared = (await run(mainId, 'jingshen_intent', { statement: 'shared fixture work', reason: 'cross-session carry', state: 'waiting',
       revisit: { at: new Date(Date.now() + 180_000).toISOString() } })).result.intent
     const firstTurn = randomUUID()
     await request('/turn', { sessionId: personalId, script: { id: firstTurn, calls: [] } })
@@ -679,19 +700,19 @@ async function main() {
     assert.equal(firstRequest?.working?.orientation?.outlook, state1.outlook, 'A brand new session sees the existing orientation on its first model request')
     assert(firstRequest.working.activeIntents.some(item => item.id === shared.id && item.revision === 1))
     assert(!firstRequest.call)
-    const cancelled = (await run(personalId, 'spirit_intent', { id: shared.id, expectedRevision: 1, statement: shared.statement, reason: 'user conversation changed the ongoing work', state: 'cancelled' })).result.intent
+    const cancelled = (await run(personalId, 'jingshen_intent', { id: shared.id, expectedRevision: 1, statement: shared.statement, reason: 'user conversation changed the ongoing work', state: 'cancelled' })).result.intent
     assert.equal(cancelled.sessionId, mainId); assert.equal(cancelled.state, 'cancelled')
     assert(cancelled.updatedBy.reference.startsWith(personalId))
     assert.equal(sqlValues('spirit_autonomy_revisit').find(entry => entry.intentId === shared.id).state, 'stale')
-    const state2 = (await run(personalId, 'spirit_orient', { expectedRevision: 1, outlook: 'revised-in-personal-conversation', reason: 'the first practice omitted a condition' })).result
+    const state2 = (await run(personalId, 'jingshen_orient', { expectedRevision: 1, outlook: 'revised-in-personal-conversation', reason: 'the first practice omitted a condition' })).result
     assert.equal(state2.source.sessionId, personalId)
     assert.equal(state2.attention, 'quiet')
-    const stale = await run(mainId, 'spirit_orient', { expectedRevision: 1, outlook: 'overwrite', reason: 'obsolete context' }, { allowError: true })
+    const stale = await run(mainId, 'jingshen_orient', { expectedRevision: 1, outlook: 'overwrite', reason: 'obsolete context' }, { allowError: true })
     assert.match(stale.result.error, /修订|版本/)
-    const exchange = (await run(mainId, 'spirit_read', { action: 'exchanges' })).result.items.find(item => item.sessionId === personalId)
+    const exchange = (await run(mainId, 'jingshen_read', { action: 'exchanges' })).result.items.find(item => item.sessionId === personalId)
     assert(exchange?.ownerExcerpt && exchange.assistantExcerpt && exchange.throughSeq > exchange.startSeq)
     evidence('native owner-created conversation inherits active work on its first request and can revise it for the whole profile')
-    const refusal = await run(personalId, 'spirit_decline', { reason: 'decided against this request' })
+    const refusal = await run(personalId, 'jingshen_decline', { reason: 'decided against this request' })
     assert.equal(refusal.result.decision.kind, 'ignore')
     assert.equal(refusal.result.decision.audit.decidedBy, 'self')
     assert.equal(refusal.result.decision.ticketId, undefined)
@@ -741,7 +762,7 @@ async function main() {
     assert.equal(spawnedRequest.sessionId, spawned.id)
     assert.equal(spawnedRequest.sawProbe, false, 'A fresh native spawn starts with its assigned task')
     assert(!spawnedRequest.tools.some(name => name.startsWith('team_task_')))
-    assert(!spawnedRequest.tools.some(name => name.startsWith('spirit_')), 'A delegated worker does not become a personal conversation')
+    assert(!spawnedRequest.tools.some(name => /^(?:jingshen|spirit)_/.test(name)), 'A delegated worker does not become a personal conversation')
     const offNotice = await settledNotice(spawned, spawnedScript.reply)
     assert.equal(offNotice.data.source.stopReason, 'completed')
     evidence('Team disabled leaves ordinary native spawn operational with isolated context and a child-attributed result', { childId: spawned.id })
@@ -766,7 +787,7 @@ async function main() {
     assert.equal(forkRequest.sessionId, forked.id)
     assert.equal(forkRequest.sawProbe, true, 'A native fork reads completed parent context')
     assert(forkRequest.tools.includes('team_task_list'))
-    assert(!forkRequest.tools.some(name => name.startsWith('spirit_')))
+    assert(!forkRequest.tools.some(name => /^(?:jingshen|spirit)_/.test(name)))
     const forkLog = await logs(forked.id)
     const listed = decodedResult(toolResult(forkLog, forkScript, 0)).tasks.find(value => value.id === task.id)
     assert.equal(listed?.status, 'pending')
@@ -797,7 +818,7 @@ async function main() {
     const rosterResult = (await run(mainId, 'list_agents', {})).result
     assert.match(String(rosterResult), /lead \[/)
     assert.match(String(rosterResult), /messenger \[/)
-    const ownerHistory = (await run(mainId, 'spirit_read', { action: 'exchanges' })).result.items
+    const ownerHistory = (await run(mainId, 'jingshen_read', { action: 'exchanges' })).result.items
     assert(ownerHistory.every(entry => !entry.ownerExcerpt.startsWith('Background subagent ')
       && !entry.ownerExcerpt.startsWith('Agent messenger sent a message:')))
     nativeArtifacts.push({ name: 'native-member-relay', memberRelay, roster: rosterResult })
@@ -903,13 +924,13 @@ async function main() {
     evidence('a new native follow-up can continue the member under workspace access without restoring the revoked input')
     await request('/permissions', { mode: 'full' }, false)
 
-    const catalog = await run(mainId, 'spirit_sessions', { action: 'models' })
+    const catalog = await run(mainId, 'jingshen_sessions', { action: 'models' })
     assert([...flatten(catalog.result)].some(value => value.id === 'high'))
-    const childCreated = await run(mainId, 'spirit_sessions', { action: 'create', title: 'Runtime fixture child', cwd: join(state, 'fixture-child'),
+    const childCreated = await run(mainId, 'jingshen_sessions', { action: 'create', title: 'Runtime fixture child', cwd: join(state, 'fixture-child'),
       selection: { provider: PROVIDER, model: 'fixture-one', reasoningEffort: 'low' }, reason: '测试原生会话创建，不连接外部服务' })
     const childId = findSessionId(childCreated.result)
     assert(childId && childId !== mainId, 'Spirit must return the native created session ID')
-    const posted = await run(mainId, 'spirit_sessions', { action: 'post', sessionId: childId, text: 'Runtime provenance fixture.',
+    const posted = await run(mainId, 'jingshen_sessions', { action: 'post', sessionId: childId, text: 'Runtime provenance fixture.',
       mode: 'queue', reason: '测试自身来源不会伪装成本人' })
     assert([...flatten(posted.result)].some(value => value.accepted === true))
     await poll(async () => (await inspect(childId)).status === 'idle', 'child turn completion')
@@ -918,12 +939,12 @@ async function main() {
     const relay = childLog.events.find(event => event.type === 'user/message' && event.data.source.kind === 'spirit')
     assert(relay, 'Posted input retains Spirit provenance in the native durable log')
     assert.equal(relay.data.source.fromSessionId, mainId)
-    const nativeRead = await run(mainId, 'spirit_sessions', { action: 'read', sessionId: childId, maxMessages: 100 })
+    const nativeRead = await run(mainId, 'jingshen_sessions', { action: 'read', sessionId: childId, maxMessages: 100 })
     assert([...flatten(nativeRead.result)].some(value => value.kind === 'spirit' && value.fromSessionId === mainId))
     evidence('native create/read/post preserves self attribution and workspace membership', { childId, messageId: relay.data.id })
-    await run(mainId, 'spirit_sessions', { action: 'model', sessionId: childId,
+    await run(mainId, 'jingshen_sessions', { action: 'model', sessionId: childId,
       selection: { provider: PROVIDER, model: 'fixture-two', reasoningEffort: 'high' }, reason: '测试原生模型与推理强度的持久选择' })
-    await run(mainId, 'spirit_sessions', { action: 'post', sessionId: childId, text: 'Force the selected fixture model into a real request.', mode: 'queue', reason: '检验下一原生请求采用所选配置' })
+    await run(mainId, 'jingshen_sessions', { action: 'post', sessionId: childId, text: 'Force the selected fixture model into a real request.', mode: 'queue', reason: '检验下一原生请求采用所选配置' })
     await poll(async () => (await inspect(childId)).status === 'idle', 'selected model turn')
     assert.deepEqual((await inspect(childId)).model, { provider: PROVIDER, model: 'fixture-two', reasoningEffort: 'high' })
     assert((await request('/trace')).trace.some(value => value.sessionId === childId && value.model === 'fixture-two' && value.reasoningEffort === 'high'))
@@ -931,7 +952,7 @@ async function main() {
 
     await request('/permissions', { mode: 'ask' }, false)
     const before = (await request('/sessions')).items.length
-    const rejectedCall = await run(mainId, 'spirit_sessions', { action: 'create', title: 'Must not exist after reject',
+    const rejectedCall = await run(mainId, 'jingshen_sessions', { action: 'create', title: 'Must not exist after reject',
       cwd: join(state, 'rejected-child'), reason: '测试敏感操作等待真实原生批准' }, { wait: false })
     const pending = await poll(async () => (await request('/trace')).pending.find(value => value.callId === rejectedCall.callId), 'native approval pending')
     assert.equal((await request('/sessions')).items.length, before)
@@ -944,7 +965,7 @@ async function main() {
     assert(rejectedLog.events.some(value => value.type === 'approval/decided' && value.data.outcome === 'rejected'))
     assert.equal((await request('/sessions')).items.length, before)
     evidence('ask mode awaits and records native rejection before mutation')
-    const pausedCall = await run(mainId, 'spirit_sessions', { action: 'create', title: 'Must not exist after paused approval',
+    const pausedCall = await run(mainId, 'jingshen_sessions', { action: 'create', title: 'Must not exist after paused approval',
       cwd: join(state, 'paused-approval-child'), reason: '测试本人暂停会撤回仍在等待的原生批准' }, { wait: false })
     await poll(async () => (await request('/trace')).pending.find(value => value.callId === pausedCall.callId), 'second native approval pending')
     await request('/control', { action: 'pause' }, false)
@@ -954,7 +975,7 @@ async function main() {
     assert((await inspect(mainId)).events.some(value => value.type === 'approval/decided' && value.data.outcome === 'cancelled'))
     await request('/control', { action: 'resume' }, false)
     evidence('pause withdraws a pending native approval before its mutation')
-    const changedCall = await run(mainId, 'spirit_sessions', { action: 'create', title: 'Must not exist after changed grant',
+    const changedCall = await run(mainId, 'jingshen_sessions', { action: 'create', title: 'Must not exist after changed grant',
       cwd: join(state, 'changed-grant-child'), reason: '测试等待批准期间权限修改使旧授权失效' }, { wait: false })
     const changing = await poll(async () => (await request('/trace')).pending.find(value => value.callId === changedCall.callId), 'approval before owner permission changes')
     await request('/permissions', { mode: 'full' }, false)
@@ -967,11 +988,11 @@ async function main() {
     evidence('permission changes invalidate an outstanding native approval grant')
     await request('/permissions', { mode: 'full' }, false)
     const approvalCount = (await inspect(mainId)).events.filter(value => value.type === 'approval/asked').length
-    await run(mainId, 'spirit_sessions', { action: 'create', title: 'Full permission fixture', cwd: join(state, 'full-child'), reason: '检验本人已选完全访问' })
+    await run(mainId, 'jingshen_sessions', { action: 'create', title: 'Full permission fixture', cwd: join(state, 'full-child'), reason: '检验本人已选完全访问' })
     assert.equal((await inspect(mainId)).events.filter(value => value.type === 'approval/asked').length, approvalCount)
     evidence('full permission uses the selected standing access without extra asks')
 
-    const change = await run(mainId, 'spirit_change', { action: 'begin', targets: ['spirit'],
+    const change = await run(mainId, 'jingshen_change', { action: 'begin', targets: ['spirit'],
       reason: '只在独立的运行时测试安装中验证可恢复的源码改动', priorLimitations: '尚未证明实际宿主中的验证命令与回退路径能一起工作',
       criteria: ['候选文件通过 Node 语法检查', '应用后文件存在，回退后移除'], evidence: ['受控的原生工具调用与本地候选目录'], retainedContent: ['保持现有插件源代码原样'] })
     const changeRecord = [...flatten(change.result)].find(value => value.schema === 1 && value.targets?.[0]?.candidateDirectory)
@@ -980,23 +1001,23 @@ async function main() {
     assert(resolve(candidateProbe).startsWith(`${state}/`), 'The fixture edits only the isolated candidate')
     writeFileSync(candidateProbe, 'module.exports = ;\n')
     const verificationChecks = [{ target: 'spirit', command: `${shellQuote(process.execPath)} --check ${shellQuote(probe)}` }]
-    const failedCheck = await run(mainId, 'spirit_change', { action: 'verify', id: changeRecord.id, checks: verificationChecks, timeoutMs: 10_000 })
+    const failedCheck = await run(mainId, 'jingshen_change', { action: 'verify', id: changeRecord.id, checks: verificationChecks, timeoutMs: 10_000 })
     assert([...flatten(failedCheck.result)].some(value => value.state === 'verification-failed'))
-    const refusedApply = await run(mainId, 'spirit_change', { action: 'apply', id: changeRecord.id }, { allowError: true })
+    const refusedApply = await run(mainId, 'jingshen_change', { action: 'apply', id: changeRecord.id }, { allowError: true })
     assert(refusedApply.event.data.message.isError)
     assert(!existsSync(join(snapshot, probe)))
     writeFileSync(candidateProbe, 'module.exports = Object.freeze({ fixture: true });\n')
-    const verified = await run(mainId, 'spirit_change', { action: 'verify', id: changeRecord.id, checks: verificationChecks, timeoutMs: 10_000 })
+    const verified = await run(mainId, 'jingshen_change', { action: 'verify', id: changeRecord.id, checks: verificationChecks, timeoutMs: 10_000 })
     assert([...flatten(verified.result)].some(value => value.state === 'verified'))
-    await run(mainId, 'spirit_change', { action: 'apply', id: changeRecord.id })
+    await run(mainId, 'jingshen_change', { action: 'apply', id: changeRecord.id })
     assert.equal(readFileSync(join(snapshot, probe), 'utf8'), readFileSync(candidateProbe, 'utf8'))
-    const rolledBack = await run(mainId, 'spirit_change', { action: 'rollback', id: changeRecord.id })
+    const rolledBack = await run(mainId, 'jingshen_change', { action: 'rollback', id: changeRecord.id })
     assert([...flatten(rolledBack.result)].some(value => value.state === 'rolled-back'))
     assert(!existsSync(join(snapshot, probe)))
     evidence('self-change verifies through native shell, refuses failed checks, applies and rolls back a local candidate', { changeId: changeRecord.id })
 
     await request('/behavior', { autonomy: 'silent' })
-    const silentIntent = await run(mainId, 'spirit_intent', { statement: '接收不等于判断的测试意向', reason: '验证接收过的机会在恢复后不会被伪报完成或重复派发',
+    const silentIntent = await run(mainId, 'jingshen_intent', { statement: '接收不等于判断的测试意向', reason: '验证接收过的机会在恢复后不会被伪报完成或重复派发',
       state: 'waiting', revisit: { at: new Date(Date.now() + 3500).toISOString() } })
     const silentIntentId = [...flatten(silentIntent.result)].find(value => value.statement === '接收不等于判断的测试意向')?.id
     const unacknowledged = await poll(() => {
@@ -1007,7 +1028,7 @@ async function main() {
     const originalRelayCount = (await inspect(mainId)).events.filter(value => value.type === 'user/message' && value.data.source.requestId === unacknowledged.dispatchId).length
     assert.equal(originalRelayCount, 1)
     const due = new Date(Date.now() + 3500).toISOString()
-    const intentResult = await run(mainId, 'spirit_intent', { statement: '持久的测试意向', reason: '仅验证模型选择的一次性再考虑在进程重启后仍有效',
+    const intentResult = await run(mainId, 'jingshen_intent', { statement: '持久的测试意向', reason: '仅验证模型选择的一次性再考虑在进程重启后仍有效',
       state: 'waiting', revisit: { at: due } })
     const intentId = [...flatten(intentResult.result)].find(value => value.statement === '持久的测试意向')?.id
     assert(intentId)
@@ -1032,7 +1053,7 @@ async function main() {
     assert.equal((await inspect(mainId)).events.filter(value => value.type === 'user/message' && value.data.source.requestId === unacknowledged.dispatchId).length, 1)
     assert(!(await request('/trace')).trace.some(value => value.dispatchId === unacknowledged.dispatchId))
     evidence('restart preserves awaiting_decision and never duplicates an accepted background turn')
-    await run(mainId, 'spirit_read', { action: 'retry', opportunityId: unacknowledged.id, reason: '测试明确重试未记录判断的机会' })
+    await run(mainId, 'jingshen_read', { action: 'retry', opportunityId: unacknowledged.id, reason: '测试明确重试未记录判断的机会' })
     const retried = await poll(() => sqlValues('spirit_autonomy_opportunity').find(value => value.id === unacknowledged.id && value.state === 'settled'), 'explicit retry is acknowledged')
     assert.notEqual(retried.dispatchId, unacknowledged.dispatchId)
     const settled = await poll(() => {
@@ -1040,15 +1061,15 @@ async function main() {
       return sqlValues('spirit_autonomy_opportunity').find(value => value.id === revisit?.opportunityId && value.state === 'settled')
     }, 'restored revisit acknowledged by native model turn')
     const restored = await inspect(mainId)
-    assert(restored.events.some(value => value.type === 'tool/call' && value.data.name === 'spirit_decide'))
+    assert(restored.events.some(value => value.type === 'tool/call' && value.data.name === 'jingshen_decide'))
     assert(sqlValues('spirit_autonomy_decision').some(value => value.opportunityId === settled.id && value.decision === 'refrain'))
     assert.equal(sqlValues('spirit_autonomy_intent').find(value => value.id === intentId)?.state, 'waiting')
-    evidence('restart preserves native logs/model choice and one-shot revisit reaches spirit_decide', { opportunityId: settled.id, dispatchId: settled.dispatchId })
+    evidence('restart preserves native logs/model choice and one-shot revisit reaches jingshen_decide', { opportunityId: settled.id, dispatchId: settled.dispatchId })
 
     const sessionsBeforeRace = (await request('/sessions')).items.length
     await request('/turn', { sessionId: childId, script: { id: randomUUID(), hold: true, calls: [] }, wait: false })
     await poll(async () => (await request('/trace')).trace.some(value => value.sessionId === childId && value.hold), 'child held before permission/pause race')
-    const queuedScript = { id: randomUUID(), calls: [{ name: 'spirit_sessions', args: { action: 'create', title: 'Queued mutation must be cancelled',
+    const queuedScript = { id: randomUUID(), calls: [{ name: 'jingshen_sessions', args: { action: 'create', title: 'Queued mutation must be cancelled',
       cwd: join(state, 'stale-queue-child'), reason: '验证本人控制改变后旧队列不会重新执行' } }] }
     await request('/turn', { sessionId: childId, script: queuedScript, wait: false })
     assert((await inspect(childId)).inbox.nextTurn > 0)
@@ -1092,10 +1113,10 @@ async function main() {
     await request('/flush-barrier', { action: 'restore' })
     await request('/permissions', { mode: 'full' }, false)
 
-    await run(mainId, 'spirit_intent', { statement: '暂停时不派发', reason: '验证暂停只保留机会', state: 'waiting', revisit: { at: new Date(Date.now() + 3500).toISOString() } })
+    await run(mainId, 'jingshen_intent', { statement: '暂停时不派发', reason: '验证暂停只保留机会', state: 'waiting', revisit: { at: new Date(Date.now() + 3500).toISOString() } })
     await request('/control', { action: 'pause' }, false)
     const callsAtPause = (await request('/trace')).trace.length
-    const pausedPrompt = { id: randomUUID(), calls: [{ name: 'spirit_sessions', args: { action: 'create', title: 'Direct prompt while paused',
+    const pausedPrompt = { id: randomUUID(), calls: [{ name: 'jingshen_sessions', args: { action: 'create', title: 'Direct prompt while paused',
       cwd: join(state, 'direct-paused-child'), reason: '只验证暂停期间直接原生输入不触发模型或工具' } }] }
     const pausedNative = await request('/turn', { sessionId: mainId, script: pausedPrompt })
     assert(!(await request('/trace')).trace.some(value => value.call?.id === callId(pausedPrompt.id, 0)))
@@ -1119,7 +1140,7 @@ async function main() {
     await request('/control', { action: 'pause' }, false)
     await poll(async () => (await inspect(mainId)).status === 'idle', 'pause cancels active native stream')
     await request('/control', { action: 'resume' }, false)
-    await run(mainId, 'spirit_intent', { statement: '停止后不复活', reason: '验证停止取消既有意向和机会', state: 'waiting', revisit: { at: new Date(Date.now() + 3500).toISOString() } })
+    await run(mainId, 'jingshen_intent', { statement: '停止后不复活', reason: '验证停止取消既有意向和机会', state: 'waiting', revisit: { at: new Date(Date.now() + 3500).toISOString() } })
     await request('/control', { action: 'stop' }, false)
     const callsAtStop = (await request('/trace')).trace.length
     await delay(4500)

@@ -7,6 +7,7 @@ import type { SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolDispatchExecution } from '@deepseek-ai/dsh-tools'
+import type { MediationAdmission } from './mediation.ts'
 
 const nativeCalls = new Set([
   'subagent', 'subagent_fork', 'send_message', 'interrupt_agent',
@@ -39,7 +40,8 @@ export class SpiritDelegation {
   private closing?: Promise<void>
   private closed = false
 
-  constructor(private readonly ctx: Context, private readonly authority: Authorization) {
+  constructor(private readonly ctx: Context, private readonly authority: Authorization,
+    private readonly admitReply?: (admission: MediationAdmission) => void) {
     // Cordis tears down independent effects concurrently, and reverses the
     // disposers yielded within one effect. Keep the observers through close.
     ctx.effect(this.observe.bind(this), 'spirit.native-delegation')
@@ -59,18 +61,42 @@ export class SpiritDelegation {
       }
     })
     yield ctx.on('agent/pre-step', async (step, next) => {
-      const run = this.runs.get(step.agent.id)
-      if (run?.child === step.agent && !this.usable(run.lease)) return { kind: 'reject' }
+      const { agent, signal } = step
+      const run = this.runs.get(agent.id)
+      const delegated = this.mediates(agent)
+      const authorize = () => {
+        if (!run || run.child !== agent || this.runs.get(agent.id) !== run || ctx.agents.get(agent.id) !== agent) {
+          throw new Error('精神委派会话已不属于当前执行')
+        }
+        this.assert(run.lease, signal)
+      }
+      if (delegated && (!run || !this.usable(run.lease))) return { kind: 'reject' }
       if (this.staleWake.delete(step.agent) && step.step === 1 && !step.messages.length) return { kind: 'reject' }
-      const decision = await next()
-      if (run?.child === step.agent && !this.usable(run.lease)) return { kind: 'reject' }
-      return this.admitMessages(step.agent, step.messages, decision)
+      const decision = this.admitMessages(agent, step.messages, await next())
+      if (!delegated || decision.kind === 'reject') return decision
+      try {
+        authorize()
+        if (!this.admitReply) return decision
+        const startSeq = ctx.agents.turnBoundaryOf(agent.session).openTurnStartSeq
+        if (startSeq === null) return { kind: 'reject' }
+        this.admitReply({ sessionId: agent.id, startSeq, turn: step.turn, step: step.step, messages: decision.messages, delegated: true, authorize })
+        return decision
+      } catch { return { kind: 'reject' } }
     })
     yield ctx.on('tools/execute', (exec, next) => this.execute(exec, next))
     yield ctx.on('agent/disposed', ({ agent }) => {
       if (this.leases.has(agent)) this.revoke(agent)
     })
     yield () => this.close()
+  }
+
+  mediates(agent: Agent): boolean {
+    if (this.runs.get(agent.id)?.child === agent) return true
+    if (agent.session.header.origin !== 'subagent') return false
+    try {
+      const root = this.ctx.get('subagents')?.rootOf(agent)
+      return !!root && root !== agent && this.authority.owns(root)
+    } catch { return false }
   }
 
   private lease(root: Agent): Lease {
@@ -151,7 +177,7 @@ export class SpiritDelegation {
       // Profile changes and recurring work outlive the delegated Session.
       // Ordinary capabilities continue through the host's own tool policies.
       const action = (exec.arguments as { action?: string })?.action
-      if (exec.name.startsWith('spirit_') || exec.name === 'schedule_create' || exec.name === 'schedule_edit'
+      if (exec.name.startsWith('jingshen_') || exec.name.startsWith('spirit_') || exec.name === 'schedule_create' || exec.name === 'schedule_edit'
         || exec.name === 'plugin_manager' && action !== undefined && profileMutations.has(action)) {
         throw new Error('这项操作需要由委派者处理')
       }

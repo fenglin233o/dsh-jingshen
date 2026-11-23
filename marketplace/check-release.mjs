@@ -65,6 +65,7 @@ try {
     }
   }
   const display = await localizedDisplay(manifest, path => readFile(packageFile(path)));
+  check(display.title.en === '精神' && display.title.zh === '精神', 'Both marketplace locales must use the name 精神.');
   // In-memory schema check only: timestamp zero is never written as a release index.
   parseMarketIndex(indexFor(entryFor(manifest, display, {
     version: manifest.version, publishTimestamp: 0,

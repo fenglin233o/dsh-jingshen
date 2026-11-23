@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { SpiritWindow, type SpiritMessage, type SpiritWindowProps } from '../src/spirit-ui.tsx'
 
 vi.mock('../src/vision-client.tsx', () => ({ VisionControls: () => null }))
-vi.mock('../src/voice-client.tsx', () => ({ VoiceCall: () => null }))
 
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 globals.IS_REACT_ACT_ENVIRONMENT = true
@@ -81,6 +80,29 @@ it('会话失去授权会清除已显示的记录，并停用输入', async () =
   expect(view.element.textContent).not.toContain('授权会话中的内容')
   expect(view.element.textContent).toContain('此窗口尚未获得授权')
   expect(view.element.querySelector('textarea')?.disabled).toBe(true)
+})
+
+it('从通讯标题栏进入通话，在通话标题栏查看语音选项', async () => {
+  const requests = vi.fn(async (path: string) => path.endsWith('/voice/status')
+    ? response({ active: true, input: { name: '本机转写', location: 'host-local' }, output: null })
+    : response(page([])))
+  vi.stubGlobal('fetch', requests)
+  const view = await mount()
+  await view.click('打开精神通讯')
+  const footer = view.element.querySelector('.jingshen-footer')
+  expect(footer?.querySelector('textarea')).toBeTruthy()
+  expect(footer?.querySelector('.spirit-voice')).toBeNull()
+  expect(requests.mock.calls.some(([path]) => path.endsWith('/voice/status'))).toBe(false)
+  await view.click('语音通话')
+  expect(view.element.querySelector('.jingshen-window[data-phone] .jingshen-call-orbit .spirit-fish')).toBeTruthy()
+  expect(view.element.querySelector('.jingshen-footer')).toBeNull()
+  expect(view.element.querySelector('.spirit-voice-options')?.hasAttribute('hidden')).toBe(true)
+  await view.click('语音选项')
+  expect(view.element.querySelector('.spirit-voice-options')?.hasAttribute('hidden')).toBe(false)
+  expect(view.element.querySelector('.spirit-voice-options select')).toBeTruthy()
+  await view.click('返回通讯')
+  expect(view.element.querySelector('.jingshen-footer textarea')).toBeTruthy()
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('语音通话')
 })
 
 it('实际看画面使用观察姿态，实际播放视频不会显示成通话', async () => {

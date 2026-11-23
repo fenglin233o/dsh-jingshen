@@ -116,7 +116,7 @@ export function entryFor(manifest, display, version) {
 export function indexFor(entry) {
   return {
     format: 1,
-    title: { en: 'Spirit plugins', zh: '精神插件索引' },
+    title: { en: '精神', zh: '精神插件索引' },
     description: { en: 'Independent personal assistant for DeepSeek Harness.', zh: 'DeepSeek Harness 独立个人助手插件。' },
     plugins: [entry],
   };

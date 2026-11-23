@@ -56,17 +56,17 @@ describe('精神主聊天', () => {
     chat.say({ text: '同一轮的话' }, source('b'), 2)
     chat.absorbNative([
       event(2, 'assistant/message', modelMessage('private', '未发布', 2)),
-      event(3, 'assistant/message', modelMessage('duplicate-answer', '同一轮的话', 2)),
+      event(3, 'assistant/message', modelMessage('independent-repeat', '同一轮的话', 2)),
       event(4, 'assistant/message', modelMessage('interrupted-answer', '已中断', 2, true)),
       event(5, 'assistant/message', modelMessage('delivered', '另一个公开回答', 3)),
       event(6, 'user/message', ownerMessage('system', '自主调度的上下文', { kind: 'spirit' })),
     ], (_session, id) => id === 'private' ? undefined : { tone: 'gentle' }, true)
-    expect(chat.page().messages.map(row => row.text)).toEqual(['以前的问题', '以前的回答', '同一轮的话', '同一轮的话', '另一个公开回答'])
-    expect(delivered).toHaveBeenCalledTimes(3)
-    expect(delivered.mock.calls[2]?.[0]).toMatchObject({ tone: 'gentle', source: { kind: 'native', messageId: 'delivered' } })
+    expect(chat.page().messages.map(row => row.text)).toEqual(['以前的问题', '以前的回答', '同一轮的话', '同一轮的话', '同一轮的话', '另一个公开回答'])
+    expect(delivered).toHaveBeenCalledTimes(4)
+    expect(delivered.mock.calls[3]?.[0]).toMatchObject({ tone: 'gentle', source: { kind: 'native', messageId: 'delivered' } })
     const latest = chat.page({ limit: 2 })
-    const older = chat.page({ before: latest.nextBefore!, limit: 3 })
-    expect(older.messages).toHaveLength(3)
+    const older = chat.page({ before: latest.nextBefore!, limit: 4 })
+    expect(older.messages).toHaveLength(4)
     expect(older.hasMore).toBe(false)
     expect(chat.page({ after: older.cursor }).messages).toEqual(latest.messages)
   })

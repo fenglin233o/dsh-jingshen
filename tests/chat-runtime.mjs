@@ -18,7 +18,7 @@ export async function verifyChatRuntime({ mainId, request, run, inspect, scriptT
 
   const firstSay = '第一条独立公开消息。', lastSay = '第二条独立公开消息。'
   const initialInput = { requestId: randomUUID(), text: scriptText({ id: randomUUID(), calls: [
-    { name: 'spirit_say', args: { text: firstSay, tone: 'warm' } }, { name: 'spirit_say', args: { text: lastSay } },
+    { name: 'jingshen_say', args: { text: firstSay, tone: 'warm' } }, { name: 'jingshen_say', args: { text: lastSay } },
   ], reply: lastSay }) }
   const receipt = await send(initialInput)
   assert.equal(receipt.accepted, true)
@@ -51,11 +51,11 @@ export async function verifyChatRuntime({ mainId, request, run, inspect, scriptT
   assert.deepEqual(prefix.messages, publicPage.messages.slice(0, 3))
   evidence('IM submits authenticated owner input to the same native main session and pages exact, deduplicated replies', { ownerMessageId: receipt.messageId })
 
-  const project = await request('/native-create', { agentPreset: 'dsh-spirit' })
+  const project = await request('/native-create', { agentPreset: 'dsh-jingshen' })
   assert(project.sessionId && project.sessionId !== mainId)
   await request('/permissions', { mode: 'full' }, false)
   const proactive = await poll(async () => (await chat(`?after=${last.cursor}`)).messages.find(message => message.text === text),
-    'autonomous model calls spirit_say on the event-free timer', 15_000)
+    'autonomous model calls jingshen_say on the event-free timer', 15_000)
   assert.equal(proactive.author, 'spirit')
   assert.equal(proactive.source.kind, 'say')
   assert.equal(proactive.source.sessionId, mainId)
@@ -69,9 +69,23 @@ export async function verifyChatRuntime({ mainId, request, run, inspect, scriptT
   assert(!sqlValues('spirit_autonomy_decision').some(row => row.opportunityId === secondOpen.id))
   evidence('Full access allows the model to independently send a new message or quietly finish the next open turn', { published: firstOpen.id, silent: secondOpen.id })
 
+  await request('/behavior', { autonomy: 'reconsider' })
+  const autonomousMessages = await poll(async () => {
+    const messages = (await chat(`?after=${proactive.cursor}`)).messages
+    return messages.some(message => message.text === '再次看过以后，我另外想到一件事。') && messages
+  }, 'open wake independently delivers a second native message', 15_000)
+  await request('/behavior', { autonomy: 'omit' })
+  assert.deepEqual(autonomousMessages.map(message => [message.source.kind, message.text]), [
+    ['native', 'PROBE_REVIEW_RECONSIDER。这是一条完整的自主消息。'], ['native', '再次看过以后，我另外想到一件事。'],
+  ])
+  const [initialAutonomous, reconsideredAutonomous] = autonomousMessages
+  assert.equal(initialAutonomous.source.turn, reconsideredAutonomous.source.turn)
+  assert.notEqual(initialAutonomous.source.messageId, reconsideredAutonomous.source.messageId)
+  evidence('an idle wake uses the same independent model decisions to deliver two complete messages in one native turn')
+
   const projectText = '项目会话决定向本人另行告知。'
-  await run(mainId, 'spirit_sessions', { action: 'post', sessionId: project.sessionId, text: scriptText({ id: randomUUID(),
-    calls: [{ name: 'spirit_say', args: { text: projectText } }], reply: '项目会话本地正文。' }), mode: 'queue', reason: '发给项目会话的实际本地测试输入' })
+  await run(mainId, 'jingshen_sessions', { action: 'post', sessionId: project.sessionId, text: scriptText({ id: randomUUID(),
+    calls: [{ name: 'jingshen_say', args: { text: projectText } }], reply: '项目会话本地正文。' }), mode: 'queue', reason: '发给项目会话的实际本地测试输入' })
   const relay = await poll(async () => (await chat(`?after=${proactive.cursor}`)).messages.find(message => message.text === projectText), 'real project chooses a public message')
   assert.equal(relay.source.sessionId, project.sessionId)
   assert.equal(relay.author, 'spirit')

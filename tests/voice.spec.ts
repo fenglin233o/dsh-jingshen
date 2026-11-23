@@ -55,6 +55,21 @@ test('default speech waits for its BreezeBlue key, while explicitly selected loc
   configured.close()
 })
 
+test('the current speech endpoint uses only credentials from its own configuration', async () => {
+  const provider = new VoiceProviderDiscovery({ get: () => undefined } as unknown as Context, {
+    SPIRIT_TTS_BASE_URL: 'https://old.example/v1', SPIRIT_TTS_API_KEY: 'previous-key',
+    JINGSHEN_TTS_BASE_URL: 'https://new.example/v1', JINGSHEN_TTS_MODEL: 'new-model',
+  })
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(Uint8Array.of(0, 0), { headers: { 'content-type': 'audio/pcm' } }))
+  try {
+    const { output } = await provider.detect()
+    await (await output!.stream({ id: 'line', text: '你好' }, signal())).cancel()
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe('https://new.example/v1/audio/speech')
+    expect(new Headers(init?.headers).get('authorization')).toBeNull()
+  } finally { provider.close() }
+})
+
 test('local recognition pins its chosen provider and keeps a cloud registry selection off the microphone path', async () => {
   const selection = { providerId: 'local', language: 'zh' }
   const registry = {

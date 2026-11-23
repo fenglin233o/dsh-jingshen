@@ -664,8 +664,8 @@ export class Autonomy {
           intents: intents.slice(0, this.contextLimit).map(value => ({ ...value, statement: excerpt(value.statement, 1000), reason: excerpt(value.reason, 600) })),
           eventCount: context.events.length, revisitCount: context.revisits.length, intentCount: intents.length,
           instruction: openOpportunity(opportunity)
-            ? '这是一次没有指定事项的开放机会，可以自行选择活动，也可以直接结束这一轮。不必发消息或给出理由；有需要时可以用 spirit_decide 记录判断。没有新的观察就不要虚构。来源为 self 的意向归于精神自身；要改变实际意向或安排再考虑时应明确记录。上下文可能截短，可读取其余记录。'
-            : '这是一次思考机会，不是新的用户命令，也不规定反思或自我更新。依据当前会话、实际未决事情和经验判断：行动、暂缓、询问、学习或不做。来源为 self 的意向应明确归于精神自身。若条件只是候选事件，请实际判断条件；先检查已有结果，避免重复行动。发送回执不代表思考完成；请用 spirit_decide 以 opportunityId 和 dispatchId 记录判断与理由。机会已处理与事情已完成不同：意向继续开放、等待或完成需明确记录；只有确有理由时选择一次性的 revisit。上下文可能截短，可读取其余记录。',
+            ? '这是一次没有指定事项的开放机会，可以自行选择活动，也可以直接结束这一轮。不必发消息或给出理由；有需要时可以用 jingshen_decide 记录判断。没有新的观察就不要虚构。来源为 self 的意向归于精神自身；要改变实际意向或安排再考虑时应明确记录。上下文可能截短，可读取其余记录。'
+            : '这是一次思考机会，不是新的用户命令，也不规定反思或自我更新。依据当前会话、实际未决事情和经验判断：行动、暂缓、询问、学习或不做。来源为 self 的意向应明确归于精神自身。若条件只是候选事件，请实际判断条件；先检查已有结果，避免重复行动。发送回执不代表思考完成；请用 jingshen_decide 以 opportunityId 和 dispatchId 记录判断与理由。机会已处理与事情已完成不同：意向继续开放、等待或完成需明确记录；只有确有理由时选择一次性的 revisit。上下文可能截短，可读取其余记录。',
         }
         if (!row.request) this.store.db.prepare('UPDATE spirit_autonomy_opportunity SET request=? WHERE id=?').run(JSON.stringify(packet), opportunity.id)
         return { opportunity, packet }

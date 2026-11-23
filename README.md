@@ -1,6 +1,6 @@
 # 精神 · dsh-jingshen
 
-**精神**是 fenglin 基于 SuperAgent 开发的个人 AI 助手，包名为 `dsh-jingshen`。在 DeepSeek Harness 的工作画幅里点一下小肥鱼，就能进入它的主会话。**0.4.3 适配 Harness 0.2.2-rc.5，要求 Node.js 24.9 或更高版本。** [下载 0.4.3 安装包](https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.4.3/dsh-jingshen-0.4.3.tgz) · [发行说明与可选资产](https://github.com/fenglin233o/dsh-jingshen/releases/tag/v0.4.3)
+**精神**是 fenglin 基于 SuperAgent 开发的个人 AI 助手，包名为 `dsh-jingshen`。在 DeepSeek Harness 的工作画幅里点一下小肥鱼，就能进入它的主会话。**0.4.5 适配 Harness 0.2.2-rc.5，要求 Node.js 24.9 或更高版本。** [下载 0.4.5 安装包](https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.4.5/dsh-jingshen-0.4.5.tgz) · [发行说明与可选资产](https://github.com/fenglin233o/dsh-jingshen/releases/tag/v0.4.5)
 
 比如你和小肥鱼商量周末去湖边，隔天又决定去书店。它可以把原来的安排改掉，在另一段会话里继续做这件事。支撑这种接续的是各会话共同使用的工作状态。主会话压缩后，已经取消的工作仍保持取消。
 
@@ -10,7 +10,7 @@
 
 设计取自《精神现象学》。模型、语言、工具和历史是起点，插件在具体经验里形成并修订判断。空闲给它重新考虑的机会，它可以发起一件事，也可以安静一会儿。[设计依据](docs/PHENOMENOLOGY.md)
 
-本版已在 Linux 本地 Web 上验证安装、从 0.4.2 升级及可打断的通话链路，并用真实 Breeze API 合成了中文语音。Electron 与其他平台仍待验证。[验证记录](docs/verification.json)
+0.4.5 的验收记录列出本次实际运行的宿主、平台、模型和语音条件。此前的真实 Breeze 合成结果归档在 0.4.3。[本版验证记录](docs/verification.json) · [0.4.3 验证档案](docs/verification-0.4.3.json)
 
 ![打开小肥鱼后的精神通讯窗](media/screenshots/main.png)
 
@@ -22,64 +22,60 @@ Harness 中配置模型账户；安装包不包含任何模型密钥。
 npm install -g @deepseek-ai/dsh@0.2.2-rc.5
 
 # 仅在创建一个全新的 profile 时执行：
-dsh --profile spirit --from-default-profile web --dump-config
+dsh --profile jingshen --from-default-profile web --dump-config
 ```
 
 `--from-default-profile` 会重建 profile，已有配置升级时不要使用。
 
 ### 建议：使用独立源码目录
 
-在 0.4.3 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
+在 0.4.5 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
 
 ```sh
 npm ci
 npm run build
-dsh plugin --profile spirit add "link:$PWD"
+dsh plugin --profile jingshen add "link:$PWD"
 ```
 
 这种方式让它改造的是你单独放置的源码与构建产物。启动独立监督进程：
 
 ```sh
-node scripts/run.mjs --state-dir /绝对路径/spirit-state -- dsh --profile spirit --no-open
+node scripts/run.mjs --state-dir /绝对路径/jingshen-state -- dsh --profile jingshen --no-open
 ```
 
-最后的 `--` 后是你确定的 Harness 启动命令。启动器会将 `SPIRIT_STATE_DIR` 传给插件；插件设置中不要再覆盖成不同目录。状态目录必须放在源码目录外。Windows 下可将末尾命令写为 `node C:\绝对路径\dsh\lib\bin.js --profile spirit --no-open`，避免以不可直接执行的 `.cmd` 作为子进程程序。
+最后的 `--` 后是你确定的 Harness 启动命令。启动器会将 `JINGSHEN_STATE_DIR` 传给插件；插件设置中不要再覆盖成不同目录。状态目录必须放在源码目录外。Windows 下可将末尾命令写为 `node C:\绝对路径\dsh\lib\bin.js --profile jingshen --no-open`，避免以不可直接执行的 `.cmd` 作为子进程程序。
 
 启动器保持进程运行，只在模型明确请求加载已经检验并应用的改动时重启 Harness。它不周期性下载、更新或强迫模型活动。按 Ctrl-C 结束启动器与其 Harness 子进程。
 
 ### 安装已构建的包
 
 ```sh
-dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.3.tgz
-dsh --profile spirit --no-open
+dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.5.tgz
+dsh --profile jingshen --no-open
 ```
 
 此方式可直接使用会话、主动意向、工具、记忆与改动功能。没有独立启动器时，需要进程重启的激活会明确返回 `restart-required`。插件内修改可以通过原生 Plugin Manager 触发重新加载；是否成功以宿主回执为准。需要长期修改源码时，建议使用上面的独立目录安装方式，避免修改包管理器的缓存副本。
 
-### 从此前私用包升级
-
-此前私用包名为 `dsh-spirit`；它与 npm 上同名的第三方项目无关。升级时先停用自己的旧包，在相同 `stateDir` 上启用本包，不同时运行两份。
-
 ### 从上一版升级
 
-沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0 至 0.4.2 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.3。以下使用已有的 `spirit` profile。
+沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0 至 0.4.3 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.5。以下示例中的 `jingshen` 请换成你原来的 profile 名。
 
 ```sh
-dsh plugin --profile spirit remove dsh-jingshen
-dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.3.tgz
+dsh plugin --profile jingshen remove dsh-jingshen
+dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.5.tgz
 ```
 
-继续使用原先的 `stateDir`，默认路径为 `~/.local/share/dsh-personal-spirit/`。同一路径会打开原来的主会话和 SQLite 数据。以前的记录使用过的预设标识 `dsh-personal-spirit` 只用于接回旧会话。当前可选的预设只有 `dsh-spirit`。
+新安装的默认状态目录为 `~/.local/share/dsh-jingshen/`。升级会沿用已有默认目录。继续使用原先的 `stateDir`，即可接回原来的主会话和 SQLite 记录。升级时会识别历史预设。插件管理器中应只有一个“精神”，包名和当前预设标识均为 `dsh-jingshen`。
 
 ## 使用
 
-点击画幅上的小肥鱼，在通讯窗底部选择主会话模型并发送消息。缩小窗口后，工作可以继续，新到达的发言计入未读。齿轮打开事务、权限、暂停、恢复和记录。通话时小肥鱼在中央放大，麦克风、挂断和视觉仍可操作。
+点击画幅上的小肥鱼，从右上角选择主会话模型，再在底部输入框发送消息。缩小窗口后，工作可以继续，新到达的发言计入未读。右上角的管理按钮打开事务、权限、暂停、恢复和记录。通话时小肥鱼在中央放大，麦克风、挂断和视觉仍可操作。
 
-主会话的每条新答复都先由精神决定是否交付。它可以采纳模型起草的原话、修改后再发、先说一句再考虑，或决定等待。在你开的项目、你请它开的会话、它自己创建的工作会话中，只要精神参与，该次发布同样经过它。原生聊天的每条已中介答复旁显示“精神”，可以按原生消息编号查到公开决定。专用通讯窗只展示实际交付的消息和你发的话。
+本人发来的消息和空闲唤醒，都可以形成零条、一条或多条公开发言。精神可以一次讲完整件事。它选择继续时，先交付这一条，再在新的模型步骤里结合已交付内容决定要不要做事、另发一条或停下。普通草稿由同一模型复核，模型可采纳、修订、等待或保持安静。在你开的项目、你请它开的会话、它自己创建的工作会话中，只要精神参与，该次发布同样经过它。参与委派的本地原生子代理和团队成员保留各自的会话身份与消息来源。原生聊天的每条已中介答复旁显示“精神”，可以按原生消息编号查到公开决定。专用通讯窗只展示实际交付的消息和你发的话。
 
 工作时小肥鱼抱着笔记本打字。已授权的视频真正播放时才会出现玩手机的动作。它还可以自行做表情或收起表情。在完全访问下，空闲时也可以选择告诉你一件事，或自行行动而不通知。开启语音、调整音色、共享视频和连接已登录标签页的步骤见 [通话与视觉](docs/MEDIA.md)。
 
-通话默认在宿主本机转写普通话，朗读使用 Breeze 云端的「大肥鱼（迷糊版）」。在小肥鱼的“通话”中点击“配置 Breeze 密钥”，通过 Harness 凭据保存专用的 `BREEZE_API_KEY`。只有通话接通后，已交付的发言正文才会发往 Breeze 进行语音合成。文字聊天无需这把密钥。你也可以手选设备普通话声线、继续使用原先显式配置的语音服务，或另装上一版的本机 PrimeTTS 声线。[通话、凭据与费用](docs/MEDIA.md) · [迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
+通话默认在宿主本机转写普通话，朗读使用 Breeze 云端的「大肥鱼（迷糊版）」。点通讯窗右上角的电话图标，打开右上角语音选项，点击“配置 Breeze 密钥”，通过 Harness 凭据保存专用的 `BREEZE_API_KEY`。只有通话接通后，已交付的发言正文才会发往 Breeze 进行语音合成。文字聊天无需这把密钥。你也可以手选设备普通话声线、继续使用原先显式配置的语音服务，或安装可选的本机 PrimeTTS 声线。[通话、凭据与费用](docs/MEDIA.md) · [迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
 
 面板提供两种真实权限模式：
 
@@ -110,7 +106,7 @@ dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.3.tgz
 
 ## 自身改造与恢复
 
-`spirit_change` 提供真实的候选改动、检查点、验证、应用、回退与激活操作。候选目录中的源码可由原生文件和 shell 工具编辑、构建、测试。验证通过后还会检查候选是否又被修改、源目录是否漂移，然后才应用。检查命令仍走原生工具权限。
+`jingshen_change` 提供真实的候选改动、检查点、验证、应用、回退与激活操作。候选目录中的源码可由原生文件和 shell 工具编辑、构建、测试。验证通过后还会检查候选是否又被修改、源目录是否漂移，然后才应用。检查命令仍走原生工具权限。
 
 文件应用、运行中版本加载与后续行为改善分别记录。独立启动器收到明确激活请求后，验证已应用版本、重启子进程，并等待新插件确认就绪。启动失败会停止并保留恢复资料，不无限重启。运行中启动器自身的代码要在重新启动该启动器后生效。
 

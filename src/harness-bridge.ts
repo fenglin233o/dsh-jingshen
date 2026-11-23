@@ -127,7 +127,12 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 function fingerprint(message: UserMessage): string {
-  return createHash('sha256').update(canonical({ content: message.content, source: message.source })).digest('hex')
+  const [first, ...rest] = message.content
+  // Previously admitted messages keep their original log entry and identity.
+  const content = message.source.kind === 'spirit' && first?.type === 'text' && first.text.startsWith('【精神（Spirit）发送；来源：')
+    ? [{ ...first, text: first.text.replace('【精神（Spirit）发送；来源：', '【精神发送；来源：') }, ...rest]
+    : message.content
+  return createHash('sha256').update(canonical({ content, source: message.source })).digest('hex')
 }
 function postedMessages(event: SessionEvent): readonly UserMessage[] {
   if (event.type === 'user/message') return [event.data]
@@ -455,7 +460,7 @@ export class HarnessBridge {
     nonempty(input.sessionId, 'sessionId'); nonempty(input.requestId, 'requestId'); nonempty(input.text, 'text')
     if (input.fromSessionId !== undefined) nonempty(input.fromSessionId, 'fromSessionId')
     const mode = input.mode ?? 'queue'
-    if (!['queue', 'steer', 'context'].includes(mode)) throw new Error('Unknown Spirit delivery mode')
+    if (!['queue', 'steer', 'context'].includes(mode)) throw new Error('未知的精神消息投递方式')
     const details = { sessionId: input.sessionId, requestId: input.requestId, text: input.text, fromSessionId: input.fromSessionId, mode }
     await this.authorize('session.post', details, signal)
     return this.serial(input.sessionId, async () => {
@@ -463,7 +468,7 @@ export class HarnessBridge {
       const history = await this.history(agent, signal)
       const id = spiritMessageId(input.sessionId, input.requestId)
       const message: UserMessage = freezeMessage({ id, role: 'user', content: [{ type: 'text',
-        text: `【精神（Spirit）发送；来源：${input.fromSessionId === undefined ? '精神后台' : `会话 ${JSON.stringify(input.fromSessionId)}`}】\n\n${input.text}`,
+        text: `【精神发送；来源：${input.fromSessionId === undefined ? '精神后台' : `会话 ${JSON.stringify(input.fromSessionId)}`}】\n\n${input.text}`,
       }], source: {
         kind: 'spirit', requestId: input.requestId, targetSessionId: input.sessionId,
         ...(input.fromSessionId === undefined ? {} : { fromSessionId: input.fromSessionId }), delivery: mode,
@@ -472,7 +477,7 @@ export class HarnessBridge {
       const expected = fingerprint(message)
       const pending = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].find(item => item.id === id)
       const previous = history.fingerprints.get(id) ?? (pending ? fingerprint(pending) : undefined)
-      if (previous !== undefined && previous !== expected) throw new Error(`Spirit requestId ${input.requestId} was already admitted with different content or delivery options`)
+      if (previous !== undefined && previous !== expected) throw new Error(`Request ${input.requestId} was already admitted with different content or delivery options`)
       await this.authorize('session.post', details, signal)
       signal.throwIfAborted()
       this.assertLive(agent)
@@ -498,7 +503,7 @@ export class HarnessBridge {
     await this.authorize('session.stop', { sessionId, keepInbox }, signal)
     const agent = this.ctx.agents.get(sessionId as SessionId)
     if (!agent) return { accepted: true as const, active: false, clearedInbox: false }
-    agent.cancel(options.cause ?? { kind: 'hook', reason: 'Spirit stop request' }, { keepInbox })
+    agent.cancel(options.cause ?? { kind: 'hook', reason: '精神请求停止' }, { keepInbox })
     // A self-stop tool must use wait:false; awaiting its own driver would deadlock.
     if (options.wait !== false) await agent.whenIdle()
     await this.ctx.sessionPersistence.flush()

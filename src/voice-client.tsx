@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { MediaIcon } from './media-icons.tsx'
 import { encodeVoiceWav, PcmPlayer, SpeechGate } from './voice-audio.ts'
 import { deviceVoice, speakOnDevice } from './voice-device.ts'
 import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceEvent } from './voice-protocol.ts'
@@ -18,6 +19,7 @@ export interface VoiceCallState {
   availability?: VoiceAvailability
   outputLabel?: string
   microphoneAvailable?: boolean
+  microphoneOpening?: boolean
 }
 interface LiveCall {
   id?: string
@@ -35,6 +37,7 @@ interface LiveCall {
   utterances: Promise<unknown>
   playback?: { message: VoiceDelivery; abort: AbortController }
   microphone?: { stream: MediaStream; source: MediaStreamAudioSourceNode; node: AudioWorkletNode; sink: GainNode }
+  openingStream?: MediaStream
   micEpoch: number
 }
 
@@ -196,13 +199,14 @@ export class VoiceTransport {
   private receive(call: LiveCall, event: VoiceEvent): void {
     if (this.call !== call) return
     if (event.type === 'ready') {
+      if (this.state.connected) return
       this.update({ connected: true, microphoneAvailable: call.input, outputLabel: outputLabel(call.output) }, 'muted')
       if (call.input) void this.unmute()
     } else if (event.type === 'closed') {
       this.hangup(event.reason)
     } else if (event.type === 'speech') {
       call.lastSequence = Math.max(event.message.sequence, call.lastSequence)
-      if (!call.output || call.recording || call.pending.length >= 8) return
+      if (!call.output) { this.media(call, event.message, 'end'); return }
       call.pending.push(event.message)
       void this.speakNext(call)
     }
@@ -220,6 +224,7 @@ export class VoiceTransport {
     call.playback = playback
     const signal = AbortSignal.any([call.abort.signal, playback.abort.signal])
     let started = false
+    let retryOnDevice = false
     const start = () => {
       if (signal.aborted || this.call !== call || started) return
       started = true
@@ -243,6 +248,7 @@ export class VoiceTransport {
           const failure = breezeError(error)
           if (failure.pause) {
             call.output = undefined
+            for (const waiting of call.pending) this.media(call, waiting, 'end')
             call.pending = []
             if (call.input) this.update({ outputLabel: outputLabel(), outputError: failure.message })
             else this.hangup(failure.message)
@@ -250,11 +256,12 @@ export class VoiceTransport {
         } else if (voice) {
           call.output = { kind: 'system', voice }
           this.update({ outputLabel: outputLabel(call.output) })
+          retryOnDevice = true
           call.pending.unshift(message)
         } else this.update({ error: error instanceof Error ? error.message : '语音播放失败' })
       }
     } finally {
-      if (started) this.media(call, message, 'end')
+      if (!retryOnDevice && this.call === call) this.media(call, message, 'end')
       if (call.playback === playback) {
         call.playback = undefined
         if (this.call === call) {
@@ -273,11 +280,20 @@ export class VoiceTransport {
 
   private bargeIn(call: LiveCall): void {
     if (this.call !== call) return
-    const reading = call.playback?.message.id
     call.recording = true
+    this.interruptPlayback(call)
+  }
+
+  interrupt(): void {
+    const call = this.call
+    if (call && this.state.speaking) this.interruptPlayback(call)
+  }
+
+  private interruptPlayback(call: LiveCall): void {
+    const reading = call.playback?.message.id
     call.pending = []
     this.stopPlayback(call)
-    this.update({ speaking: false }, 'listening')
+    this.update({ speaking: false }, this.restingPhase(call))
     void voiceFetch('interrupt', { call: call.id!, through: String(call.lastSequence),
       ...(call.lastInput ? { input: call.lastInput } : {}), ...(reading ? { reading } : {}),
     }, { method: 'POST', signal: call.abort.signal }).catch(() => {})
@@ -307,26 +323,26 @@ export class VoiceTransport {
       if (this.call === call) this.update({ error: error instanceof Error ? error.message : '语音转写失败' })
     }).finally(() => {
       call.framesPending--
-      if (this.call === call) this.update({}, this.restingPhase(call))
+      if (this.call === call) {
+        this.update({}, this.restingPhase(call))
+        void this.speakNext(call)
+      }
     })
   }
 
   async unmute(): Promise<void> {
     const call = this.call
-    if (!call?.input || call.microphone) return
+    if (!call?.input || call.microphone || this.state.microphoneOpening) return
     const epoch = ++call.micEpoch
+    this.update({ microphoneOpening: true, error: undefined })
     let stream: MediaStream | undefined
     try {
       if (!navigator.mediaDevices?.getUserMedia || !call.context.audioWorklet) throw new Error('当前浏览器不支持此页面的麦克风录音')
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
       if (this.call !== call || call.micEpoch !== epoch) { stream.getTracks().forEach(track => track.stop()); return }
-      if (!workletLoaded.has(call.context)) {
-        const script = await (await voiceFetch('worklet.js', {}, { signal: call.abort.signal })).blob()
-        const url = URL.createObjectURL(script)
-        try { await call.context.audioWorklet.addModule(url); workletLoaded.add(call.context) }
-        finally { URL.revokeObjectURL(url) }
-      }
-      if (this.call !== call || call.micEpoch !== epoch) { stream.getTracks().forEach(track => track.stop()); return }
+      call.openingStream = stream
+      await loadMicWorklet(call)
+      if (this.call !== call || call.micEpoch !== epoch) return
       const source = call.context.createMediaStreamSource(stream)
       const node = new AudioWorkletNode(call.context, 'spirit-mic'), sink = call.context.createGain()
       sink.gain.value = 0
@@ -336,15 +352,17 @@ export class VoiceTransport {
       }
       source.connect(node); node.connect(sink); sink.connect(call.context.destination)
       call.microphone = { stream, source, node, sink }
+      call.openingStream = undefined
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => {
         if (this.call === call && call.micEpoch === epoch) { this.mute(); this.update({ error: '麦克风已断开' }) }
       }, { once: true })
-      this.update({ listening: true, error: undefined }, this.restingPhase(call))
+      this.update({ listening: true, microphoneOpening: false, error: undefined }, this.restingPhase(call))
     } catch (error) {
-      stream?.getTracks().forEach(track => track.stop())
       if (this.call === call && call.micEpoch === epoch) {
+        call.openingStream = undefined
+        stream?.getTracks().forEach(track => track.stop())
         const reason = error instanceof DOMException && error.name === 'NotAllowedError' ? '未获得麦克风权限' : '无法打开麦克风'
-        this.update({ listening: false, error: reason }, this.restingPhase(call))
+        this.update({ listening: false, microphoneOpening: false, error: reason }, this.restingPhase(call))
       }
     }
   }
@@ -352,6 +370,8 @@ export class VoiceTransport {
   private releaseMic(call: LiveCall): void {
     call.micEpoch++
     call.recording = false
+    call.openingStream?.getTracks().forEach(track => track.stop())
+    call.openingStream = undefined
     const mic = call.microphone
     call.microphone = undefined
     if (!mic) return
@@ -365,7 +385,8 @@ export class VoiceTransport {
     const call = this.call
     if (!call) return
     this.releaseMic(call)
-    this.update({ listening: false }, this.restingPhase(call))
+    this.update({ listening: false, microphoneOpening: false, error: undefined }, this.restingPhase(call))
+    void this.speakNext(call)
   }
 
   private sendHangup(call: LiveCall): void {
@@ -383,11 +404,30 @@ export class VoiceTransport {
     this.sendHangup(call)
     void call.context.close().catch(() => {})
     this.update({ connected: false, listening: false, speaking: false, error: reason, outputError: undefined, outputLabel: undefined,
-      microphoneAvailable: undefined }, reason ? 'disconnected' : 'idle')
+      microphoneAvailable: undefined, microphoneOpening: undefined }, reason ? 'disconnected' : 'idle')
   }
 }
 
-const workletLoaded = new WeakSet<AudioContext>()
+const micWorklets = new WeakMap<AudioContext, Promise<void>>()
+
+async function registerMicWorklet(call: LiveCall): Promise<void> {
+  const script = await (await voiceFetch('worklet.js', {}, { signal: call.abort.signal })).blob()
+  const url = URL.createObjectURL(script)
+  try { await call.context.audioWorklet.addModule(url) }
+  finally { URL.revokeObjectURL(url) }
+}
+
+function loadMicWorklet(call: LiveCall): Promise<void> {
+  let worklet = micWorklets.get(call.context)
+  if (!worklet) {
+    worklet = registerMicWorklet(call).catch(error => {
+      micWorklets.delete(call.context)
+      throw error
+    })
+    micWorklets.set(call.context, worklet)
+  }
+  return worklet
+}
 
 function VoiceSample({ src }: { src: string }) {
   const audio = useRef<HTMLAudioElement>(null)
@@ -456,8 +496,10 @@ function BreezeKeySetup({ missing, save, refresh }: {
   </form>
 }
 
-export function VoiceCall({ active = true, onCallChange, saveBreezeKey }: {
+export function VoiceCall({ active = true, optionsOpen = false, optionsId, onCallChange, saveBreezeKey }: {
   active?: boolean
+  optionsOpen?: boolean
+  optionsId?: string
   onCallChange?: (state: VoiceCallState) => void
   saveBreezeKey?: (key: string) => Promise<void>
 }): React.JSX.Element {
@@ -482,6 +524,11 @@ export function VoiceCall({ active = true, onCallChange, saveBreezeKey }: {
     void transport.check(controller.signal)
     return () => { controller.abort(); transport.hangup() }
   }, [active, transport])
+  useEffect(() => {
+    const hangup = () => transport.hangup()
+    window.addEventListener('pagehide', hangup)
+    return () => window.removeEventListener('pagehide', hangup)
+  }, [transport])
   useEffect(() => { onCallChange?.(state) }, [onCallChange, state])
   const { availability, connected } = state
   const hostOutput = availability?.output ?? undefined
@@ -498,48 +545,61 @@ export function VoiceCall({ active = true, onCallChange, saveBreezeKey }: {
   const error = [state.outputError, state.error].filter(Boolean).join(' ')
   const idle = !connected && state.phase !== 'connecting' && active
   const showBreezeSetup = breeze && (idle || connected && !!state.outputError)
+  const micOn = state.listening || state.microphoneOpening
   return <div className="spirit-voice">
+    <p className="spirit-voice-status" data-error={!!error || undefined} role="status">
+      {error || (!active ? '当前无法通话' : state.microphoneOpening && !state.speaking ? '正在打开麦克风' : state.label)}
+    </p>
     <div className="spirit-voice-controls">
       {connected || state.phase === 'connecting'
         ? <>
-          {connected && <button type="button" onClick={() => state.listening ? transport.mute() : void transport.unmute()} disabled={!state.microphoneAvailable}
-            aria-pressed={state.listening}>{state.listening ? '关麦' : '开麦'}</button>}
-          <button type="button" onClick={() => transport.hangup()}>挂断</button>
+          {connected && <>
+            <button type="button" onClick={() => micOn ? transport.mute() : void transport.unmute()} disabled={!state.microphoneAvailable}
+              data-mic-on={micOn || undefined}><MediaIcon name={micOn ? 'mic' : 'muted'} />{micOn ? '关麦' : '开麦'}</button>
+            <button type="button" disabled={!state.speaking} onClick={() => transport.interrupt()}>
+              <MediaIcon name="stop" />打断朗读</button>
+          </>}
+          <button type="button" data-action="hangup" onClick={() => transport.hangup()}><MediaIcon name="hangup" />挂断</button>
         </>
-        : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(preference)}>
+        : <button type="button" data-action="connect" disabled={!canConnect} onClick={() => void transport.connect(preference)}>
+          <MediaIcon name="phone" />
           {transcriptionOnly ? '仅转写并开麦' : availability?.input ? '接通并开麦' : '接通语音'}
         </button>}
-      {idle && <>
-        <button type="button" onClick={() => { setSystemVoice(deviceVoice()); void transport.check() }}>检查语音</button>
-        {sample && <VoiceSample key={sample} src={`/personal-spirit/assets/voice/${sample}`} />}
-      </>}
     </div>
-    <p className="spirit-voice-status" data-error={!!error || undefined} role="status">{error || state.label}</p>
-    {idle && availability && <div className="spirit-voice-providers">
-      <label>通话输出 <select value={preference} onChange={event => {
-        const value = event.target.value as OutputPreference
-        setPreference(value)
-        try { window.localStorage.setItem(preferenceKey, value) } catch { /* Preferences still apply to the current view. */ }
-      }}>
-        <option value="auto">自动选择</option>
-        <option value="host" disabled={!hostOutput && preference !== 'host'}>宿主语音合成</option>
-        <option value="system" disabled={!systemVoice && preference !== 'system'}>设备中文朗读</option>
-        <option value="input" disabled={!availability.input && preference !== 'input'}>仅语音转写</option>
-      </select></label>
-      {selected ? <span>通话声线 · {outputLabel(selected)}</span>
-        : <span>{transcriptionOnly ? '仅语音转写' : preference === 'system' ? '设备没有本机普通话声线'
-          : missingKey ? 'BreezeBlue 朗读未配置' : preference === 'host' ? '宿主语音合成未配置' : '当前没有可用的通话语音'}</span>}
-      {!systemVoice && preference !== 'system' && !breeze && <span>设备没有本机普通话声线</span>}
-      {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '宿主本机' : '远端服务'}）</span>
-        : <span>未配置语音转写</span>}
-    </div>}
-    {showBreezeSetup && <div className="spirit-voice-setup">
-      {missingKey ? <p>在 Harness 凭据中保存 <code>BREEZE_API_KEY</code>，再点「检查语音」。请勿把密钥发到聊天中。</p>
-        : idle && selected?.kind === 'host' ? <p>BreezeBlue 接收要朗读的回复文字，并按用量计费。</p> : null}
-      <a href={breezeKeys} target="_blank" rel="noopener noreferrer">BreezeBlue API 密钥</a>
-      <a href={breezePreview} target="_blank" rel="noopener noreferrer">官方试听 · 大肥鱼（迷糊版）</a>
-      {idle && saveBreezeKey && <BreezeKeySetup missing={missingKey} save={saveBreezeKey} refresh={() => transport.check()} />}
-    </div>}
-    {connected && <span className="spirit-voice-provider" role="status">{state.outputLabel}</span>}
+    <section id={optionsId} className="spirit-voice-options" aria-label="语音选项" hidden={!optionsOpen}>
+      <h2>语音选项</h2>
+      {optionsOpen && <>
+        {idle && <div className="spirit-voice-option-actions">
+          <button type="button" onClick={() => { setSystemVoice(deviceVoice()); void transport.check() }}>检查语音</button>
+          {sample && <VoiceSample key={sample} src={`/personal-spirit/assets/voice/${sample}`} />}
+        </div>}
+        {(idle || connected) && availability && <div className="spirit-voice-providers">
+          <label>通话输出 <select value={preference} disabled={connected} onChange={event => {
+            const value = event.target.value as OutputPreference
+            setPreference(value)
+            try { window.localStorage.setItem(preferenceKey, value) } catch { /* Preferences still apply to the current view. */ }
+          }}>
+            <option value="auto">自动选择</option>
+            <option value="host" disabled={!hostOutput && preference !== 'host'}>宿主语音合成</option>
+            <option value="system" disabled={!systemVoice && preference !== 'system'}>设备中文朗读</option>
+            <option value="input" disabled={!availability.input && preference !== 'input'}>仅语音转写</option>
+          </select></label>
+          {idle && (selected ? <span>通话声线 · {outputLabel(selected)}</span>
+            : <span>{transcriptionOnly ? '仅语音转写' : preference === 'system' ? '设备没有本机普通话声线'
+              : missingKey ? 'BreezeBlue 朗读未配置' : preference === 'host' ? '宿主语音合成未配置' : '当前没有可用的通话语音'}</span>)}
+          {idle && !systemVoice && preference !== 'system' && !breeze && <span>设备没有本机普通话声线</span>}
+          {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '宿主本机' : '远端服务'}）</span>
+            : <span>未配置语音转写</span>}
+        </div>}
+        {showBreezeSetup && <div className="spirit-voice-setup">
+          {missingKey ? <p>在 Harness 凭据中保存 <code>BREEZE_API_KEY</code>，再点「检查语音」。请勿把密钥发到聊天中。</p>
+            : idle && selected?.kind === 'host' ? <p>BreezeBlue 接收要朗读的回复文字，并按用量计费。</p> : null}
+          <a href={breezeKeys} target="_blank" rel="noopener noreferrer">BreezeBlue API 密钥</a>
+          <a href={breezePreview} target="_blank" rel="noopener noreferrer">官方试听 · 大肥鱼（迷糊版）</a>
+          {idle && saveBreezeKey && <BreezeKeySetup missing={missingKey} save={saveBreezeKey} refresh={() => transport.check()} />}
+        </div>}
+        {connected && <p className="spirit-voice-provider" role="status">{state.outputLabel}</p>}
+      </>}
+    </section>
   </div>
 }

@@ -5,7 +5,7 @@ import { BlockAssembler, createUserMessage, ToolCallId, type ContentBlock, type 
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Store } from '../upstream/src/app/store.ts'
-import { Mediation, reviewToolName } from '../src/mediation.ts'
+import { Mediation, replyToolName, reviewToolName, sayToolName } from '../src/mediation.ts'
 
 const sessionId = 'actual-session', native = { provider: 'provider', model: 'resolved-model' }
 const owner = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '本人在原生回合发言' }] })
@@ -15,9 +15,9 @@ afterEach(() => cleanup.splice(0).reverse().forEach(dispose => dispose()))
 function fixture(authorize = vi.fn(), review = vi.fn(async function* (_options: GenerateOptions) {
   yield* block(0, tool(reviewToolName, { disposition: 'publish', reason: '复核后选择原样表达' }))
   yield finish('tool-calls')
-})) {
+}), main = false) {
   const directory = mkdtempSync(join(tmpdir(), 'spirit-mediation-')), store = new Store(join(directory, 'state.sqlite'))
-  const mediation = new Mediation(store, review)
+  const mediation = new Mediation(store, review, main ? sessionId : undefined)
   cleanup.push(() => { store.close(); rmSync(directory, { recursive: true, force: true }) })
   const admit = (step = 1, turn = 1, messages: readonly UserMessage[] = step === 1 ? [owner] : []) => mediation.admit({
     sessionId, startSeq: turn * 100, turn, step, messages, authorize, practice: () => ({ outlook: '从原始证据判断' }),
@@ -110,7 +110,7 @@ it('accepts a single fenced decision from text providers and withholds prose sur
 it('publishes only explicitly selected prose and keeps ordinary calls and native provider replay alignment', async () => {
   const { mediation, review } = fixture(), call = tool('bash', { command: 'read-public-thing' })
   const reasoning = { type: 'reasoning' as const, text: 'PRIVATE-nonpublic-provider-block' }
-  const reply = tool('spirit_reply', { disposition: 'speak', text: '可见正文', tone: 'gentle', reason: '公开理由' })
+  const reply = tool('jingshen_reply', { disposition: 'speak', text: '可见正文', tone: 'gentle', reason: '公开理由' })
   const terminal: StreamChunk = { type: 'finish', reason: { kind: 'tool-calls' }, replayState: {
     response: { kind: 'deepseek-messages', version: 1, model: native.model },
     blocks: [{ type: 'reasoning', signature: 'PRIVATE-signature' }, { type: 'text' }, { type: 'tool-call' }, { type: 'tool-call' }],
@@ -123,7 +123,7 @@ it('publishes only explicitly selected prose and keeps ordinary calls and native
     blocks: [{ type: 'reasoning', signature: 'PRIVATE-signature' }, { type: 'tool-call' }, { type: 'text' }],
   } })
   expect(JSON.stringify(stream)).not.toContain('不应出现的草稿')
-  expect(JSON.stringify(stream)).not.toContain('spirit_reply')
+  expect(JSON.stringify(stream)).not.toContain('jingshen_reply')
   expect(mediation.approvedReply(sessionId, message.id)).toEqual({ tone: 'gentle' })
   expect(mediation.record(sessionId, message.id)).toMatchObject({ text: '可见正文', reason: '公开理由' })
   expect(JSON.stringify(mediation.records(sessionId))).not.toContain('PRIVATE')
@@ -131,9 +131,9 @@ it('publishes only explicitly selected prose and keeps ordinary calls and native
 })
 
 it.each(['wait', 'silent'] as const)('withholds %s and the follow-up prose after a real tool, with no fabricated message', async disposition => {
-  const { mediation, admit } = fixture(), call = tool('spirit_read', { action: 'state' })
+  const { mediation, admit } = fixture(), call = tool('jingshen_read', { action: 'state' })
   const suppressed = await generate(mediation, [...block(0, text('被推迟的草稿')), ...block(1, call),
-    ...block(2, tool('spirit_reply', { disposition, reason: '本轮等独立材料' })), finish('tool-calls')])
+    ...block(2, tool('jingshen_reply', { disposition, reason: '本轮等独立材料' })), finish('tool-calls')])
   const decisionMessage = settle(mediation, suppressed)
   expect(decisionMessage.content).toEqual([call])
   expect(mediation.approvedReply(sessionId, decisionMessage.id)).toBeUndefined()
@@ -152,7 +152,7 @@ it.each(['wait', 'silent'] as const)('withholds %s and the follow-up prose after
 
 it('continues via a separately sourced native follow-up step only after the prior part commits', async () => {
   const { mediation, admit } = fixture()
-  const first = await generate(mediation, [...block(0, tool('spirit_reply', { disposition: 'continue', text: '先交付这一段' })), finish('tool-calls')])
+  const first = await generate(mediation, [...block(0, tool('jingshen_reply', { disposition: 'continue', text: '先交付这一段' })), finish('tool-calls')])
   expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
   const firstMessage = settle(mediation, first)
   const continuation = mediation.takeContinuation(sessionId, 1)
@@ -163,6 +163,77 @@ it('continues via a separately sourced native follow-up step only after the prio
   const secondMessage = settle(mediation, second, { step: 2 })
   expect(firstMessage.id).not.toEqual(secondMessage.id)
   expect(mediation.records(sessionId).map(({ disposition, input }) => [disposition, input.kind])).toEqual([['speak', 'owner'], ['continue', 'owner']])
+})
+
+it('lets the main model reconsider after every delivery without a count or text-based ceiling', async () => {
+  const { mediation, admit } = fixture(vi.fn(), undefined, true)
+  const ids = new Set<string>()
+  for (let step = 1; step <= 11; step++) {
+    const emitted = await generate(mediation, [...block(0, tool(replyToolName, { disposition: 'continue', text: '同一句可以再次成立。' })), finish('tool-calls')])
+    expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
+    const receipt = settle(mediation, emitted, { step })
+    expect(mediation.record(sessionId, receipt.id)).toMatchObject({ disposition: 'continue', step, text: '同一句可以再次成立。' })
+    ids.add(receipt.id)
+    const next = mediation.takeContinuation(sessionId, 1)
+    expect(next?.content[0]).toMatchObject({ text: expect.stringContaining('自主决定行动、等待、安静结束或另发一条') })
+    admit(step + 1, 1, [next!])
+  }
+  const work = tool('spirit_read', { action: 'state' })
+  const last = settle(mediation, await generate(mediation, [...block(0, work), finish('tool-calls')]), { step: 12 })
+  expect(last.content).toEqual([work])
+  expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
+  expect(ids.size).toBe(11)
+})
+
+it('lets the main review commit an intact draft, then reconsider using the actual prior delivery', async () => {
+  const complete = '本次的完整答复。\n\n下一段与前面一起交付。'
+  const review = vi.fn(async function* (_options: GenerateOptions) {
+    const choice = review.mock.calls.length === 1 ? { disposition: 'publish', reconsider: true, reason: '交付完整消息后再判断' }
+      : { disposition: 'silent', reason: '这次没有新话要说' }
+    yield* block(0, tool(reviewToolName, choice))
+    yield finish('tool-calls')
+  })
+  const { mediation, admit } = fixture(vi.fn(), review, true)
+  const first = await generate(mediation, [...block(0, text('本次的完整答复。')), ...block(1, text('\n\n下一段与前面一起交付。')), finish()])
+  expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
+  const delivered = settle(mediation, first)
+  expect(mediation.record(sessionId, delivered.id)).toMatchObject({ method: 'review', disposition: 'continue', text: complete })
+  admit(2, 1, [mediation.takeContinuation(sessionId, 1)!])
+  const next = await generate(mediation, [...block(0, text('这条草稿不需要交付。')), finish()])
+  expect(settle(mediation, next, { step: 2 }).content).toEqual([])
+  expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
+  expect(review.mock.calls[1]?.[0].messages[0]?.content[0]).toMatchObject({ text: expect.stringContaining(JSON.stringify(complete)) })
+})
+
+it('keeps simultaneous speech candidates and co-generated drafts out of main delivery while allowing real work', async () => {
+  const { mediation, admit, review } = fixture(vi.fn(), undefined, true)
+  const say = tool(sayToolName, { text: '一条即时消息' }), work = tool('spirit_read', { action: 'state' })
+  const mixed = await generate(mediation, [...block(0, text('拟交付的两段')), ...block(1, say),
+    ...block(2, tool(sayToolName, { text: '另一条同时生成的即时消息' }, 'say2')), ...block(3, work), finish('tool-calls')])
+  expect(settle(mediation, mixed).content).toEqual([work])
+  expect(review).not.toHaveBeenCalled()
+  admit(2)
+  const chosen = await generate(mediation, [...block(0, text('同时写出但未选择交付的正文')), ...block(1, say), finish('tool-calls')])
+  expect(settle(mediation, chosen, { step: 2 }).content).toEqual([say])
+  mediation.noteSay(sessionId, 1, '一条即时消息')
+  admit(3)
+  const later = await generate(mediation, [...block(0, text('一条即时消息')), finish()])
+  const repeated = settle(mediation, later, { step: 3 })
+  expect(mediation.record(sessionId, repeated.id)).toMatchObject({ disposition: 'speak', text: '一条即时消息' })
+  expect(review.mock.calls[0]?.[0].messages[0]?.content[0]).toMatchObject({ text: expect.stringContaining('"lastDelivery":"一条即时消息"') })
+})
+
+it('lets a real new main step reconsider an earlier decision to wait', async () => {
+  const { mediation, admit, review } = fixture(vi.fn(), undefined, true)
+  const work = tool('jingshen_read', { action: 'state' })
+  const waiting = await generate(mediation, [...block(0, tool(replyToolName, { disposition: 'wait', reason: '先看资料' })),
+    ...block(1, work), finish('tool-calls')])
+  expect(settle(mediation, waiting).content).toEqual([work])
+  expect(mediation.takeContinuation(sessionId, 1)).toBeUndefined()
+  admit(2)
+  const delivered = settle(mediation, await generate(mediation, [...block(0, text('材料到了，可以完整答复。')), finish()]), { step: 2 })
+  expect(mediation.record(sessionId, delivered.id)).toMatchObject({ disposition: 'speak', text: '材料到了，可以完整答复。' })
+  expect(review.mock.calls[0]?.[0].messages[0]?.content[0]).toMatchObject({ text: expect.stringContaining('"previousWithholding":"wait"') })
 })
 
 it('does not release drafts if the adapter fails or the current authorization changes', async () => {
@@ -203,14 +274,14 @@ it('never sends private blocks to review, allows substantive revision, and recor
   })
   const { mediation, admit } = fixture(vi.fn(), review)
   const first = await generate(mediation, [...block(0, { type: 'reasoning', text: 'PRIVATE-hidden-reasoning' }), ...block(1, text('未复核的草稿')),
-    ...block(2, tool('spirit_read', { query: 'PRIVATE-tool-input' })), finish('tool-calls')])
+    ...block(2, tool('jingshen_read', { query: 'PRIVATE-tool-input' })), finish('tool-calls')])
   const selected = settle(mediation, first)
   expect(selected.content).toContainEqual(text('新结论保留可核查的限制'))
   expect(selected.content).not.toContainEqual(text('未复核的草稿'))
   expect(review.mock.calls[0]?.[0].messages[0]?.content[0]).toMatchObject({ text: expect.not.stringContaining('PRIVATE') })
   expect(mediation.record(sessionId, selected.id)).toMatchObject({ method: 'review', reason: '原草稿过度确定' })
   admit(2)
-  const toolOnly = await generate(mediation, [...block(0, tool('spirit_read', { action: 'state' })), finish('tool-calls')])
+  const toolOnly = await generate(mediation, [...block(0, tool('jingshen_read', { action: 'state' })), finish('tool-calls')])
   settle(mediation, toolOnly, { step: 2 })
   expect(review).toHaveBeenCalledTimes(1)
   admit(3)

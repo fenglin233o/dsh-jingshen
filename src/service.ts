@@ -130,7 +130,7 @@ export class PersonalService {
           ...(experience.parentTicketId ? { previousExperience: this.book.context(experience.parentTicketId),
             previousExecution: this.require(experience.parentTicketId).execution } : {}),
           instruction: experience.source.kind === 'owner'
-            ? '这项事情来自本人的真实请求。结合已有材料展开工作，并用 spirit_report 如实记录结果、依据或尚未解决的困难。'
+            ? '这项事情来自本人的真实请求。结合已有材料展开工作，并用 jingshen_report 如实记录结果、依据或尚未解决的困难。'
             : '这项事情由精神在本人的长期授权范围内自主发起，来源和理由已记录。结合已有材料判断并推进，按实际结果记录经验；这不是新的本人消息。',
         }))
       } catch (error) { this.busy.delete(ticketId); throw error }

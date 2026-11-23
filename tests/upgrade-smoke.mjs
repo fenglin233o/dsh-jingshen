@@ -110,6 +110,8 @@ async function main() {
   writeFileSync(join(profile, 'cordis.yml'), '[]\n')
   writeFileSync(join(profile, 'cordis.patch.yml'), [
     '- id: dsh-spirit', '  config:', `    stateDir: ${JSON.stringify(state)}`, '    openIntervalMinutes: 0',
+    '- id: agent-preset-registry', '  config:', '    default: standard',
+    `    selectedDefault: ${oldVersion === '0.2.0' ? 'dsh-personal-spirit' : 'dsh-spirit'}`,
     '- id: agent-default-model', '  config:', `    provider: ${provider}`, '    model: fixture-one', '    reasoningEffort: low',
     ...['llm-deepseek', 'llm-deepseek-account', 'llm-pi-ai', 'session-title-llm'].flatMap(id => [`- id: ${id}`, '  disabled: true']),
     '- insert:', '    - id: spirit-runtime-fixture', `      name: ${JSON.stringify(join(modules, packageName, 'tests/upgrade-smoke.mjs'))}`, '',
@@ -313,31 +315,31 @@ async function main() {
     assert.deepEqual(upgradedMain.events.find(event => event.type === 'user/message' && event.data.id === seeded.messageId),
       oldMain.events.find(event => event.type === 'user/message' && event.data.id === seeded.messageId))
     const roster = (await request(`/roster?sessionId=${encodeURIComponent(mainId)}`)).tools
-    assert(['spirit_intent', 'spirit_orient', 'bash', 'read'].every(tool => roster.includes(tool)))
-    const first = await runTool(mainId, 'spirit_read', {})
+    assert(['jingshen_intent', 'jingshen_orient', 'bash', 'read'].every(tool => roster.includes(tool)))
+    const first = await runTool(mainId, 'jingshen_read', {})
     const upgradedInventory = await inventory()
-    const spiritPresets = upgradedInventory.presets.filter(value => /^dsh-(?:personal-)?spirit$/.test(value.id) || value.name?.startsWith('精神'))
+    const spiritPresets = upgradedInventory.presets.filter(value => ['dsh-jingshen', 'dsh-spirit', 'dsh-personal-spirit'].includes(value.id) || value.name?.startsWith('精神'))
     const spiritPlugins = upgradedInventory.plugins.filter(value => value.moduleName === packageName)
     const spiritPresetPlugins = upgradedInventory.plugins.filter(value => /dsh-spirit-(?:legacy-)?preset$/.test(value.entryId))
-    assert.deepEqual(spiritPresets.map(value => value.id), ['dsh-spirit'])
+    assert.deepEqual(spiritPresets.map(value => value.id), ['dsh-jingshen'])
     assert(spiritPresets[0].isDefault && !spiritPresets[0].broken)
     assert.equal(spiritPlugins.length, 1)
     assert.equal(spiritPlugins[0].fiberPhase, 'active')
     assert.equal(spiritPresetPlugins.length, 1)
-    assert.equal(upgradedMain.preset, 'dsh-spirit')
+    assert.equal(upgradedMain.preset, 'dsh-jingshen')
     const firstStep = upgradedInventory.steps.find(step => step.sessionId === mainId)
     assert(firstStep?.messageIds.includes(first.messageId), 'The first upgraded model step should admit the controlled prompt')
-    assert.equal(firstStep.preset, 'dsh-spirit')
+    assert.equal(firstStep.preset, 'dsh-jingshen')
     const firstModel = (await trace()).trace.find(step => step.sessionId === mainId)
-    assert(firstModel?.tools.includes('spirit_orient'), 'The first upgraded model request has current Spirit tools')
+    assert(firstModel?.tools.includes('jingshen_orient'), 'The first upgraded model request has current Spirit tools')
     assert(firstModel.working?.activeIntents.some(intent => intent.id === pending.id && intent.revision === pending.revision))
     const legacyConversation = await inspect(legacyId)
     assert.deepEqual(legacyConversation.events.find(event => event.type === 'user/message' && event.data.id === archived.messageId), archivedMessage)
-    assert.equal(legacyConversation.preset, 'dsh-spirit')
-    const conversationTurn = await runTool(legacyId, 'spirit_read', {})
+    assert.equal(legacyConversation.preset, 'dsh-jingshen')
+    const conversationTurn = await runTool(legacyId, 'jingshen_read', {})
     const conversationStep = (await inventory()).steps.find(step => step.sessionId === legacyId)
     assert(conversationStep?.messageIds.includes(conversationTurn.messageId))
-    assert.equal(conversationStep.preset, 'dsh-spirit')
+    assert.equal(conversationStep.preset, 'dsh-jingshen')
     if (oldOrientation) assert.deepEqual(upgraded.orientation, oldOrientation)
     record('existing sessions keep their working directories and their first upgraded model requests use the only Spirit preset', {
       mainId, mainCwd: upgradedMain.header.cwd, mainExposedAsWorkspaceMember: false, legacyConversationId: legacyId,
@@ -352,7 +354,7 @@ async function main() {
     assert(upgradedMain.events.some(event => event.type === 'approval/decided' && event.data.id === oldApproval.data.id && event.data.outcome === 'cancelled'))
     assert(!(await trace()).pending.some(entry => entry.callId === oldCall.callId))
     const sessionCount = (await request('/sessions')).items.length
-    const newCall = await startTool(mainId, 'spirit_sessions', sensitiveCall('new-pending-approval'), false)
+    const newCall = await startTool(mainId, 'jingshen_sessions', sensitiveCall('new-pending-approval'), false)
     const newApproval = await waitForApproval(newCall.callId)
     const newAsked = (await inspect(mainId)).events.find(event => event.type === 'approval/asked' && event.data.callId === newCall.callId)
     assert(newAsked)
@@ -379,7 +381,7 @@ async function main() {
     assert(!(await trace()).trace.some(entry => entry.dispatchId === prior.dispatchId))
     record('revoked work, owner-stopped work and the accepted dispatch do not replay automatically', { revokedId, stoppedId, oldDispatchId: prior.dispatchId, intentId: pending.id })
 
-    await runTool(mainId, 'spirit_read', { action: 'retry', opportunityId: prior.id, reason: 'Explicitly retry the undecided fixture opportunity' })
+    await runTool(mainId, 'jingshen_read', { action: 'retry', opportunityId: prior.id, reason: 'Explicitly retry the undecided fixture opportunity' })
     const recovered = await poll(async () => { const value = byId((await panel()).opportunities, prior.id); return value?.state === 'settled' && value }, 'explicit recovery')
     assert.notEqual(recovered.dispatchId, prior.dispatchId)
     const reawakened = await poll(async () => {
@@ -440,10 +442,10 @@ async function main() {
     await checkProject(false)
     for (const [sessionId, previous] of [[mainId, oldMain], [legacyId, archived]]) {
       const log = await inspect(sessionId)
-      assert.equal(log.preset, 'dsh-spirit')
+      assert.equal(log.preset, 'dsh-jingshen')
       assert.equal(log.header.cwd, previous.header.cwd)
       const migrated = log.events.filter(event => event.seq > previous.events.at(-1).seq && event.type === 'agent-preset/selected')
-      assert.deepEqual(migrated.map(event => event.data.agentPreset), sourcePreset === legacyPreset ? ['dsh-spirit'] : [])
+      assert.deepEqual(migrated.map(event => event.data.agentPreset), ['dsh-jingshen'])
     }
     const restartedChat = await panel('/chat?after=0&limit=100')
     assert.deepEqual(restartedChat.messages.filter(message => message.cursor <= history.cursor), history.messages)
@@ -457,11 +459,11 @@ async function main() {
     assert.equal(full.permissions.status, 'applied')
     const { sessionId: fullConversationId } = await request('/native-create', { workspaceId: projectWorkspace.id })
     const fullConversation = await inspect(fullConversationId)
-    assert.equal(fullConversation.preset, 'dsh-spirit')
+    assert.equal(fullConversation.preset, 'dsh-jingshen')
     assert.equal(nativePermission(fullConversation), 'danger-full-access')
-    await runTool(fullConversationId, 'spirit_read', {})
+    await runTool(fullConversationId, 'jingshen_read', {})
 
-    const fullTaskId = (await runTool(mainId, 'spirit_start', { origin: 'self', title: 'New work under full permissions',
+    const fullTaskId = (await runTool(mainId, 'jingshen_start', { origin: 'self', title: 'New work under full permissions',
       request: 'Inspect the local fixture record', reason: 'Verify a fresh worker can receive and complete work after the upgrade' })).value.task.id
     const fullWorkerId = byId((await panel()).tasks, fullTaskId).sessionId
     const fullWorker = await poll(async () => {
@@ -474,7 +476,7 @@ async function main() {
     assert.equal(sentWork(fullWorker).length, 1)
     assert((await trace()).trace.some(entry => entry.sessionId === fullWorkerId))
     const completion = 'The isolated worker received the original Spirit dispatch.'
-    await runTool(fullWorkerId, 'spirit_report', { state: 'ready', summary: completion })
+    await runTool(fullWorkerId, 'jingshen_report', { state: 'ready', summary: completion })
     const final = await panel(), completed = byId(final.tasks, fullTaskId)
     assert.equal(final.permissions.status, 'applied')
     assert.equal(completed.ended?.outcome, 'completed')

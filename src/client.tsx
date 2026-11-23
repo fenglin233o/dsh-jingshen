@@ -6,23 +6,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ModelCatalog, ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { PropsRuntime, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { NativeInteractions } from './native-interactions.tsx'
+import { observeMediationBadges, type NativeConversations } from './native-mediation-badges.ts'
 import { SpiritWindow, spiritRequest } from './spirit-ui.tsx'
 import type { PersonalService } from './service.ts'
 import type { Experience, Memory } from './experience.ts'
 import type { ActivationReceipt, ActivationStatus } from './activation.ts'
 import css from './style.css?raw'
-
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  // This rc.5 Chat slot is present in the official Web bundle. Keeping the
-  // small public contract local avoids making Chat a runtime dependency.
-  interface SlotMap {
-    'conversation.chat.assistant-actions': { kind: 'list'; scope: 'session'; owner: { messageId: MessageId } }
-  }
-}
 
 type PermissionMode = 'full' | 'ask'
 type ControlAction = 'pause' | 'resume' | 'stop' | 'recover'
@@ -453,26 +445,6 @@ function SpiritModels({ ctx }: { ctx: ClientContext }) {
   </form>
 }
 
-type MediationReceipt = { sessionId: string; messageId?: string; source: string; disposition: string }
-type AssistantSourceProps = PropsRuntime<'conversation.chat.assistant-actions'> & { messageId: MessageId; sessionId?: SessionId }
-
-function AssistantSource({ sessionId, messageId }: AssistantSourceProps) {
-  const [published, setPublished] = useState<{ sessionId: SessionId; messageId: MessageId }>()
-  useEffect(() => {
-    if (!sessionId) return
-    const controller = new AbortController()
-    const query = new URLSearchParams({ sessionId, messageId })
-    void spiritRequest<{ records: MediationReceipt[] }>(`mediation?${query}`, undefined, controller.signal).then(result => {
-      if (controller.signal.aborted || !Array.isArray(result.records)) return
-      if (result.records.some(row => row.sessionId === sessionId && row.messageId === messageId
-        && row.source === 'spirit' && (row.disposition === 'speak' || row.disposition === 'continue'))) setPublished({ sessionId, messageId })
-    }).catch(() => { /* Rows with no verified receipt keep their native presentation. */ })
-    return () => controller.abort()
-  }, [sessionId, messageId])
-  return published?.sessionId === sessionId && published?.messageId === messageId
-    ? <span className="jingshen-mediation-badge" data-message-id={messageId} title="来自这个会话中精神的实际发布">精神</span> : null
-}
-
 const privateMainPanel = 'dsh-jingshen.private-main' as MainPanelId
 const privateIdentityStorage = 'dsh-jingshen.main-session'
 function cachedMainId(): string | undefined {
@@ -486,6 +458,19 @@ type SpiritOverlayProps = PropsRuntime<'shell.overlay'> & {
 }
 function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
   const [mainId, setMainId] = useState(cachedMainId)
+  const panels = ctx.layout.panelInfo
+  const subscribePanel = useCallback((listener: () => void) => panels.subscribe(listener), [panels])
+  const inPluginManager = useCallback(() => panels.getSnapshot().activePanelId === 'plugins', [panels])
+  const hideLauncher = useSyncExternalStore(subscribePanel, inPluginManager, inPluginManager)
+
+  useEffect(() => {
+    if (!mainId) return
+    const fiber = ctx.inject(['uiConversation'], active => {
+      const conversations = active.get('uiConversation') as NativeConversations
+      active.effect(() => observeMediationBadges(conversations, mainId))
+    })
+    return () => { void fiber.dispose() }
+  }, [ctx, mainId])
   const credentials = ctx.get?.('remote.credentials') as {
     set(ref: string, value: string): Promise<RemoteResult<void>>
   } | undefined
@@ -512,7 +497,6 @@ function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
   useLayoutEffect(() => {
     if (!mainId) return
     const references = ctx.sessions.retainInfo(mainId as SessionId)
-    const panels = ctx.layout.panelInfo
     let stopped = false
     let queued = false
     const reconcile = () => {
@@ -534,7 +518,7 @@ function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
     const disposePanels = panels.subscribe(schedule)
     schedule()
     return () => { stopped = true; disposeReferences(); disposePanels() }
-  }, [ctx, mainId])
+  }, [ctx, mainId, panels])
 
   const openSession = async (id: string) => {
     const target = id as SessionId
@@ -554,7 +538,7 @@ function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
   ].join(',')
   return <>
     {hidden && <style>{`${hidden}{display:none!important}`}</style>}
-    <SpiritWindow
+    <SpiritWindow hideLauncher={hideLauncher}
       renderManagement={openNative => <Panel embedded openSession={openNative} />}
       renderModels={() => <SpiritModels ctx={ctx} />}
       saveBreezeKey={credentials?.set ? saveBreezeKey : undefined}
@@ -569,7 +553,4 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: privateMainPanel }, () => null))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'dsh-jingshen' },
     props => <SpiritOverlay {...props} ctx={ctx} />))
-  ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
-    name: 'conversation.chat.assistant-actions', id: 'dsh-jingshen.source', order: -100,
-  }, AssistantSource))
 }

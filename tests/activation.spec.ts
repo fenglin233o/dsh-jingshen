@@ -160,7 +160,7 @@ describe('explicit activation of an owner-supervised Harness process', () => {
     expect(f.activation.snapshot().supervisor?.state).toBe('failed')
     expect(starts(f)).toEqual(['one', 'broken'])
     expect(readFileSync(join(f.book.read(details.changeId).targets[0]!.checkpointDirectory, 'version.txt'), 'utf8')).toBe('one')
-    expect(running.output()).toContain('before Spirit acknowledged startup')
+    expect(running.output()).toContain('before dsh-jingshen acknowledged startup')
   }, 15_000)
 
   it('refuses later source edits and an acknowledgement from another launch', async () => {

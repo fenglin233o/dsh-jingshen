@@ -20,6 +20,8 @@ type Call = {
   attachBy: ReturnType<typeof setTimeout>
   receive?: (event: VoiceEvent) => void
   messages: Map<string, CallDelivery>
+  recent: Map<string, CallDelivery>
+  pendingBytes: number
   inputs: Map<string, string>
   sequence: number
   discardedThrough: number
@@ -28,6 +30,8 @@ type Call = {
   transcription?: AbortSignal
 }
 const MAX_MESSAGES = 32
+const MAX_PENDING_BYTES = 8 * 1024 * 1024
+const messageBytes = (message: VoiceDelivery) => 128 + 2 * (message.id.length + message.text.length)
 
 export function validateVoiceWav(audio: Uint8Array<ArrayBuffer>): void {
   const wave = Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength)
@@ -208,7 +212,8 @@ export class VoiceService {
     const id = randomUUID()
     const attachBy = setTimeout(() => this.hangup(id, '连接已过期'), 15_000)
     attachBy.unref()
-    this.calls.set(id, { id, providers, attachBy, messages: new Map(), inputs: new Map(), sequence: 0, discardedThrough: 0, abort: new AbortController() })
+    this.calls.set(id, { id, providers, attachBy, messages: new Map(), recent: new Map(), pendingBytes: 0,
+      inputs: new Map(), sequence: 0, discardedThrough: 0, abort: new AbortController() })
     return { id, input: !!providers.input, neural: !!providers.output, output: providers.output?.info ?? null,
       ...(providers.setup && { setup: providers.setup }) }
   }
@@ -233,11 +238,14 @@ export class VoiceService {
     if (!message.id || !message.text.trim()) return
     try { this.requireActive() } catch { return }
     for (const call of this.calls.values()) {
-      if (!call.receive || call.messages.has(message.id)) continue
+      if (!call.receive || call.messages.has(message.id) || call.recent.has(message.id)) continue
       const delivery = { id: message.id, text: message.text, tone: message.tone, sequence: ++call.sequence }
+      call.pendingBytes += messageBytes(delivery)
+      if (call.pendingBytes > MAX_PENDING_BYTES) {
+        this.hangup(call.id, '待朗读消息过多，通话已挂断')
+        continue
+      }
       call.messages.set(message.id, { ...delivery, source: message.source })
-      const oldest = call.messages.keys().next()
-      if (call.messages.size > MAX_MESSAGES && !oldest.done) call.messages.delete(oldest.value)
       try { call.receive({ type: 'speech', message: delivery }) }
       catch { this.hangup(call.id, '连接已断开') }
     }
@@ -315,12 +323,23 @@ export class VoiceService {
     const call = this.requireCall(callId)
     if (!playing) {
       if (call.media?.id === messageId) this.finishMedia(call)
+      const message = call.messages.get(messageId)
+      if (message) this.retire(call, message)
       return
     }
+    if (call.recent.has(messageId)) return
     const message = this.message(call, messageId)
     if (call.media?.id === messageId) return
     this.finishMedia(call)
     if (this.options.onPlaying) call.media = { id: messageId, finish: this.options.onPlaying(message) }
+  }
+
+  private retire(call: Call, message: CallDelivery): void {
+    call.messages.delete(message.id)
+    call.pendingBytes -= messageBytes(message)
+    call.recent.set(message.id, { ...message, text: '' })
+    const oldest = call.recent.keys().next()
+    if (call.recent.size > MAX_MESSAGES && !oldest.done) call.recent.delete(oldest.value)
   }
 
   private finishMedia(call: Call): void {
@@ -335,8 +354,12 @@ export class VoiceService {
     if (call.playback && call.playback.sequence <= call.discardedThrough) call.playback.abort.abort()
     if (call.media && (call.messages.get(call.media.id)?.sequence ?? 0) <= call.discardedThrough) this.finishMedia(call)
     const ownerMessageId = lastInput === undefined ? undefined : call.inputs.get(lastInput)
-    const spoken = reading === undefined ? undefined : call.messages.get(reading)
+    const spoken = reading === undefined ? undefined : call.messages.get(reading) ?? call.recent.get(reading)
     const source = spoken && spoken.sequence <= through ? spoken.source : undefined
+    for (const message of call.messages.values()) {
+      if (message.sequence > call.discardedThrough) break
+      this.retire(call, message)
+    }
     if (ownerMessageId || source) this.options.cutGeneration?.({ ownerMessageId, reading: source })
   }
 

@@ -217,7 +217,7 @@ export function registerVision(ctx: Context, options: {
   ] }
   const when = ({ agent }: { agent?: Agent }) => !!agent && agent.id === options.mainId && (options.available?.(agent) ?? true)
   const unbindRead = ctx.tools.register({
-    name: 'spirit_vision',
+    name: 'jingshen_vision',
     description: '读取本人已开启的本机实时物体识别。可给 afterSeq 和最多 6500ms 的 waitMs，等待下一帧的检测结果。结果带时间、检测置信度和位置。无新结果时不要推断当前画面，也不要把检测当作完整图像或身份识别。',
     parameters: { type: 'object', ...z.toJSONSchema(readVisionInput) },
     output: toolOutput,
@@ -234,8 +234,8 @@ export function registerVision(ctx: Context, options: {
     },
   }, { when })
   const unbindWatch = ctx.tools.register({
-    name: 'spirit_watch',
-    description: '自行播放、停止或检查本人授权的视频。若 status 显示 library.host，可根据检索结果在该 HTTPS 域名 select 或 play(url)。只有 watching 表示播放时间实际推进。用 spirit_vision 读取更新的识别。未授权来源不可打开。',
+    name: 'jingshen_watch',
+    description: '自行播放、停止或检查本人授权的视频。若 status 显示 library.host，可根据检索结果在该 HTTPS 域名 select 或 play(url)。只有 watching 表示播放时间实际推进。用 jingshen_vision 读取更新的识别。未授权来源不可打开。',
     parameters: { type: 'object', ...z.toJSONSchema(watchInput) },
     output: toolOutput,
     execute: async (args, exec) => {

@@ -7,14 +7,14 @@ import { isAbsolute } from 'node:path'
 import { activationPaths, assertAppliedChange, listReceipts, readJSON, receiptState, recordPath, stamp, trySourceOperationLock, writeJSON } from './activation-protocol.mjs'
 
 function options(argv) {
-  const result = { stateDir: process.env.SPIRIT_STATE_DIR, pollMs: 250, bootTimeoutMs: 60_000, shutdownTimeoutMs: 10_000, command: [] }
+  const result = { stateDir: process.env.JINGSHEN_STATE_DIR || process.env.SPIRIT_STATE_DIR, pollMs: 250, bootTimeoutMs: 60_000, shutdownTimeoutMs: 10_000, command: [] }
   const numeric = { '--poll-ms': ['pollMs', 25, 1000], '--boot-timeout-ms': ['bootTimeoutMs', 250, 600_000],
     '--shutdown-timeout-ms': ['shutdownTimeoutMs', 100, 60_000] }
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]
     if (key === '--') { result.command = argv.slice(i + 1); break }
     if (key === '--help') {
-      console.log('Usage: node scripts/run.mjs --state-dir /absolute/state -- executable [arguments...]\nSPIRIT_STATE_DIR may supply the state directory. Stop with Ctrl-C. Only explicit Spirit activation requests cause a restart.')
+      console.log('Usage: node scripts/run.mjs --state-dir /absolute/state -- executable [arguments...]\nJINGSHEN_STATE_DIR may supply the state directory. Stop with Ctrl-C. Only explicit dsh-jingshen activation requests cause a restart.')
       process.exit(0)
     }
     if (key === '--state-dir') { result.stateDir = argv[++i]; continue }
@@ -65,7 +65,7 @@ async function boot(config, receipt) {
   publish({ state: receipt ? 'restarting' : 'starting', bootId, requestId: receipt?.id, childPid: undefined, detail: undefined })
   childOutcome = undefined
   child = spawn(config.command[0], config.command.slice(1), {
-    shell: false, stdio: 'inherit', env: { ...process.env, SPIRIT_STATE_DIR: paths.stateDir,
+    shell: false, stdio: 'inherit', env: { ...process.env, JINGSHEN_STATE_DIR: paths.stateDir, SPIRIT_STATE_DIR: paths.stateDir,
       SPIRIT_SUPERVISOR_ID: state.instanceId, SPIRIT_BOOT_ID: bootId, SPIRIT_ACTIVATION_REQUEST: receipt?.id ?? '' },
   })
   child.once('error', error => { childOutcome = { error: error.message } })
@@ -73,7 +73,7 @@ async function boot(config, receipt) {
   publish({ childPid: child.pid })
   const deadline = Date.now() + config.bootTimeoutMs
   while (!stopped) {
-    if (childOutcome) throw new Error(`Child exited before Spirit acknowledged startup (${childOutcome.error ?? childOutcome.code ?? childOutcome.signal})`)
+    if (childOutcome) throw new Error(`Child exited before dsh-jingshen acknowledged startup (${childOutcome.error ?? childOutcome.code ?? childOutcome.signal})`)
     const acknowledgement = readJSON(recordPath(paths.acknowledgements, bootId), true)
     if (acknowledgement) {
       if (acknowledgement.schema !== 1 || acknowledgement.bootId !== bootId || acknowledgement.supervisorId !== state.instanceId
@@ -82,13 +82,13 @@ async function boot(config, receipt) {
       if (receipt) {
         assertAppliedChange(paths, receipt)
         activeReceipt = receiptState(paths, activeReceipt, 'runtime-loaded',
-          'Spirit acknowledged readiness after restart. This records runtime loading, not behavioral improvement.',
+          'dsh-jingshen acknowledged readiness after restart. This records runtime loading, not behavioral improvement.',
           { loadedAt: acknowledgement.at, runtime: acknowledgement.runtime })
       }
-      publish({ state: 'running', requestId: undefined, detail: 'Spirit startup acknowledged.' })
+      publish({ state: 'running', requestId: undefined, detail: 'dsh-jingshen startup acknowledged.' })
       return
     }
-    if (Date.now() >= deadline) throw new Error('Spirit did not acknowledge startup before the boot deadline; no automatic retry will run')
+    if (Date.now() >= deadline) throw new Error('dsh-jingshen did not acknowledge startup before the boot deadline; no automatic retry will run')
     publish({}); await delay(config.pollMs)
   }
 }
@@ -146,7 +146,7 @@ try {
 } catch (error) {
   // Never print argv, environment variables or child output in diagnostic records.
   const message = error instanceof Error ? error.message : 'Supervisor failed'
-  console.error(`Spirit supervisor: ${message}`)
+  console.error(`dsh-jingshen supervisor: ${message}`)
   if (ownedLock) {
     if (activeReceipt && ['restarting', 'booting'].includes(activeReceipt.status)) {
       activeReceipt = receiptState(paths, activeReceipt, 'failed', 'The requested version did not acknowledge a successful startup.', { error: message })

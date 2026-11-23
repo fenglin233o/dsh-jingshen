@@ -136,7 +136,7 @@ export class ExperienceBook {
       result: value.result && { ...value.result, text: excerpt(value.result.text, 1600), limits: excerpt(value.result.limits, 400), check: excerpt(value.result.check, 400) },
       reflections, recovery: value.recovery && { ...value.recovery, instruction: excerpt(value.recovery.instruction, 600) },
       totalEvidence: value.evidence.length, totalFrames: value.frames.length, totalResults: value.results.length,
-      readMore: '这是工作视图，部分长文本截短；可用 spirit_read 的 evidenceId、frame、resultRound 或 action=reflections 读取原记录。' }
+      readMore: '这是工作视图，部分长文本截短；可用 jingshen_read 的 evidenceId、frame、resultRound 或 action=reflections 读取原记录。' }
   }
   private save(value: Experience): void {
     const { reflections: _reflections, ...stored } = value

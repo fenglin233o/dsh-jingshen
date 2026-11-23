@@ -21,7 +21,7 @@ const stamp = () => new Date().toISOString()
 export class SpiritControl {
   constructor(readonly store: Store) {
     store.db.exec(`CREATE TABLE IF NOT EXISTS spirit_control (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS spirit_sessions (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS jingshen_sessions (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_watches (id TEXT PRIMARY KEY, reason TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS spirit_activity (id TEXT PRIMARY KEY, value TEXT NOT NULL);`)
     if (!store.db.prepare('SELECT id FROM spirit_control WHERE id=1').get()) {
@@ -62,19 +62,19 @@ export class SpiritControl {
     this.saveSession(value)
   }
   private saveSession(value: ManagedSession): void {
-    this.store.db.prepare('INSERT INTO spirit_sessions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(value.id, JSON.stringify(value))
+    this.store.db.prepare('INSERT INTO jingshen_sessions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(value.id, JSON.stringify(value))
   }
   sessions(): ManagedSession[] {
-    return this.store.db.prepare('SELECT value FROM spirit_sessions ORDER BY rowid').all().map(row => JSON.parse(String(row.value)) as ManagedSession)
+    return this.store.db.prepare('SELECT value FROM jingshen_sessions ORDER BY rowid').all().map(row => JSON.parse(String(row.value)) as ManagedSession)
   }
   session(id: string): ManagedSession | undefined {
-    const row = this.store.db.prepare('SELECT value FROM spirit_sessions WHERE id=?').get(id)
+    const row = this.store.db.prepare('SELECT value FROM jingshen_sessions WHERE id=?').get(id)
     return row && JSON.parse(String(row.value)) as ManagedSession
   }
   releaseConversation(id: string): boolean {
-    return this.store.db.prepare("DELETE FROM spirit_sessions WHERE id=? AND json_extract(value,'$.kind')='conversation'").run(id).changes === 1
+    return this.store.db.prepare("DELETE FROM jingshen_sessions WHERE id=? AND json_extract(value,'$.kind')='conversation'").run(id).changes === 1
   }
-  managed(id: string): boolean { return !!this.store.db.prepare('SELECT id FROM spirit_sessions WHERE id=?').get(id) }
+  managed(id: string): boolean { return !!this.store.db.prepare('SELECT id FROM jingshen_sessions WHERE id=?').get(id) }
   watch(id: string, reason: string): void {
     this.store.db.prepare('INSERT INTO spirit_watches VALUES(?,?) ON CONFLICT(id) DO UPDATE SET reason=excluded.reason').run(id, reason)
     this.record('watch', '观察会话的后续变化', reason, id)
@@ -97,7 +97,7 @@ export class SpiritControl {
 /** Native tools retain their own sandbox/approval policies. This classifies only Spirit-owned cross-session/source mutations. */
 export function sensitiveSpiritCall(name: string, args: unknown): boolean {
   const action = args && typeof args === 'object' ? (args as { action?: unknown }).action : undefined
-  if (name === 'spirit_sessions') return ['create', 'post', 'model', 'stop'].includes(String(action))
-  if (name === 'spirit_change') return ['begin', 'verify', 'apply', 'rollback', 'activate'].includes(String(action))
+  if (name === 'jingshen_sessions') return ['create', 'post', 'model', 'stop'].includes(String(action))
+  if (name === 'jingshen_change') return ['begin', 'verify', 'apply', 'rollback', 'activate'].includes(String(action))
   return false
 }

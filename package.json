@@ -1,6 +1,6 @@
 {
   "name": "dsh-jingshen",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "description": "精神 · fenglin 的 DeepSeek Harness 个人助手，支持跨会话自主活动、小肥鱼通讯、可打断的语音和连续视觉。",
   "type": "module",
   "license": "MIT",
@@ -121,7 +121,6 @@
     "deepseek-harness",
     "dsh",
     "dsh-plugin",
-    "spirit",
     "personal-assistant",
     "autonomy",
     "memory",

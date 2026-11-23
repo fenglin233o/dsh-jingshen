@@ -3,6 +3,7 @@ import {
   type CSSProperties, type KeyboardEvent, type ReactNode,
 } from 'react'
 import { SpiritFish, fishCss, type FishActivity, type FishMood } from './fish.tsx'
+import { MediaIcon } from './media-icons.tsx'
 import { VisionControls } from './vision-client.tsx'
 import { VoiceCall, type VoiceCallState } from './voice-client.tsx'
 import css from './spirit-ui.css?raw'
@@ -29,7 +30,7 @@ type ChatPage = {
   hasMore: boolean
   presence: Presence
 }
-type WindowMode = 'closed' | 'chat' | 'manage' | 'model'
+type WindowMode = 'closed' | 'chat' | 'phone' | 'manage' | 'model'
 type ChatFailure = { status?: number; message: string }
 type PublicationGesture = { duration: number; mood?: FishMood }
 
@@ -270,6 +271,7 @@ function useWorkArea(launcher: React.RefObject<HTMLDivElement>) {
 }
 
 export interface SpiritWindowProps {
+  hideLauncher?: boolean
   renderManagement(openSession: (sessionId: string) => Promise<void>): ReactNode
   renderModels(sessionId: string): ReactNode
   saveBreezeKey?(key: string): Promise<void>
@@ -279,12 +281,13 @@ export interface SpiritWindowProps {
   openSignal?: number
 }
 
-export function SpiritWindow({ renderManagement, renderModels, renderNativeInteractions, openSource, saveBreezeKey, onMainId, openSignal }: SpiritWindowProps) {
+export function SpiritWindow({ hideLauncher, renderManagement, renderModels, renderNativeInteractions, openSource, saveBreezeKey, onMainId, openSignal }: SpiritWindowProps) {
   const [mode, setMode] = useState<WindowMode>('closed')
   const [draft, setDraft] = useState('')
   const [sendError, setSendError] = useState<string>()
   const [sending, setSending] = useState(false)
   const [call, setCall] = useState<VoiceCallState>()
+  const [mediaPanel, setMediaPanel] = useState<'vision' | 'voice'>()
   const [follow, setFollow] = useState(true)
   const [watching, setWatching] = useState(false)
   const [nativePending, setNativePending] = useState(0)
@@ -298,8 +301,9 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
   const dialogTitle = useRef<HTMLHeadingElement>(null)
   const launcher = useRef<HTMLButtonElement>(null)
   const transcript = useRef<HTMLDivElement>(null)
-  const footer = useRef<HTMLElement>(null)
-  const wasPhone = useRef(false)
+  const phoneEntry = useRef<HTMLButtonElement>(null)
+  const focusPhoneEntry = useRef(false)
+  const focusLauncher = useRef(false)
   const receivedOpen = useRef(openSignal)
   const olderHeight = useRef<{ top: number; height: number }>()
   const id = useId()
@@ -313,7 +317,7 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
   const { left, right } = useWorkArea(root)
   const kind = data?.presence.activity.kind
   const paused = kind === 'paused' || kind === 'stopped'
-  const canSend = !!data && !error && !paused && !call?.connected
+  const canSend = !!data && !error && !paused
   const media = data?.presence.activity.media
   const watchingVideo = watching || media?.kind === 'video' && media.state === 'playing'
   const status = error ? isAuthorized(error) ? '连接中断' : '需要授权'
@@ -321,7 +325,8 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
   const detail = data?.presence.activity.label
   const activity = watchingVideo && !paused ? 'video' : fishActivity(data?.presence)
   const expression = data?.presence.expression
-  const isPhone = call?.connected === true && showing && !paused
+  const isPhone = mode === 'phone'
+  const onCall = isPhone && call?.connected === true && !paused
   const currentMood = expression && Date.parse(expression.until) > Date.now() ? expressionMoods[expression.kind] : undefined
   const mood = !isPhone && gesture ? gesture.mood : currentMood
   const showChat = mode === 'chat' && !isPhone
@@ -348,17 +353,18 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
   useEffect(() => {
     if (receivedOpen.current !== openSignal) {
       receivedOpen.current = openSignal
-      setFollow(true); setMode('chat')
+      setFollow(true); setMode('chat'); setMediaPanel(undefined); setCall(undefined)
     }
   }, [openSignal])
   useEffect(() => {
-    if (mode !== 'closed') dialogTitle.current?.focus({ preventScroll: true })
+    if (mode === 'chat' && focusPhoneEntry.current) {
+      focusPhoneEntry.current = false
+      phoneEntry.current?.focus({ preventScroll: true })
+    } else if (mode === 'closed') {
+      if (focusLauncher.current) launcher.current?.focus({ preventScroll: true })
+      focusLauncher.current = false
+    } else dialogTitle.current?.focus({ preventScroll: true })
   }, [mode])
-  useEffect(() => {
-    if (isPhone) dialogTitle.current?.focus({ preventScroll: true })
-    else if (wasPhone.current && showing) footer.current?.querySelector<HTMLElement>('.spirit-voice button:not(:disabled)')?.focus({ preventScroll: true })
-    wasPhone.current = isPhone
-  }, [isPhone, showing])
   useEffect(() => {
     if (showChat && follow && !document.hidden) acknowledge()
   }, [showChat, follow, lastCursor, acknowledge])
@@ -377,11 +383,21 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
     } else if (showChat && follow) list.scrollTop = list.scrollHeight
   }, [showChat, follow, data?.messages])
   const close = () => {
+    focusLauncher.current = true
     setMode('closed')
     setCall(undefined)
-    launcher.current?.focus({ preventScroll: true })
+    setMediaPanel(undefined)
   }
   const reveal = () => { setFollow(true); setMode('chat') }
+  const returnToChat = () => {
+    if (isPhone) {
+      setCall(undefined)
+      focusPhoneEntry.current = true
+    }
+    setMediaPanel(undefined)
+    setMode('chat')
+  }
+  const toggleMedia = (panel: 'voice' | 'vision') => setMediaPanel(current => current === panel ? undefined : panel)
   const leaveForSession = async (sessionId: string) => {
     if (sessionId === data?.mainId) { reveal(); return }
     await openSource(sessionId)
@@ -417,7 +433,11 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
     if (event.key !== 'Escape') return
     event.preventDefault()
     event.stopPropagation()
-    if (mode === 'manage' || mode === 'model') setMode('chat')
+    if (mediaPanel) {
+      const toggle = event.currentTarget.querySelector<HTMLElement>(`button[aria-controls="${id}-${mediaPanel}"]`)
+      setMediaPanel(undefined)
+      toggle?.focus({ preventScroll: true })
+    } else if (mode !== 'chat') returnToChat()
     else close()
   }
   const earlier = async () => {
@@ -430,10 +450,10 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
   return <div className="jingshen-dock" ref={root} data-active-call={isPhone || undefined}
     style={{ '--jingshen-work-left': `${left}px`, '--jingshen-work-right': `${right}px` } as CSSProperties}>
     <style>{css}{fishCss}</style>
-    <button type="button" ref={launcher} className="jingshen-launcher"
+    <button type="button" ref={launcher} className="jingshen-launcher" hidden={hideLauncher}
       aria-label={showing ? '缩小精神通讯' : ['打开精神通讯', ...notifications].join('，')}
       title={detail || status} aria-expanded={showing} aria-controls={showing ? id : undefined} tabIndex={showing ? -1 : 0} onClick={showing ? close : reveal}>
-      <SpiritFish activity={activity} mood={mood ?? null} speaking={isPhone ? call?.speaking : !!gesture} onCall={isPhone} />
+      <SpiritFish activity={activity} mood={mood ?? null} speaking={isPhone ? call?.speaking : !!gesture} onCall={onCall} />
       <span className="jingshen-launcher-marker" data-status={error ? 'error' : kind} aria-hidden="true">
         {unread && !showing ? Math.min(unread, 99) : <span />}
       </span>
@@ -442,35 +462,42 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
     <section id={id} role="dialog" hidden={!showing} aria-labelledby={`${id}-title`} className="jingshen-window" data-view={mode}
       data-phone={isPhone || undefined} onKeyDown={key}>
       <header className="jingshen-header">
-        {((mode === 'manage' || mode === 'model') && !isPhone) ? <button type="button" className="jingshen-icon"
-          aria-label="返回通讯" title="返回通讯" onClick={() => setMode('chat')}><Icon name="arrow" /></button>
+        {mode !== 'chat' && mode !== 'closed' ? <button type="button" className="jingshen-icon"
+          aria-label="返回通讯" title="返回通讯" onClick={returnToChat}><Icon name="arrow" /></button>
           : <div className="jingshen-header-avatar"><SpiritFish variant="portrait" activity={activity} mood={mood ?? null} /></div>}
         <div className="jingshen-header-text">
           <h1 ref={dialogTitle} id={`${id}-title`} tabIndex={-1}>
-            {isPhone ? '精神' : mode === 'manage' ? '管理精神' : mode === 'model' ? '会话模型' : '精神'}
+            {isPhone ? '语音通话' : mode === 'manage' ? '管理精神' : mode === 'model' ? '会话模型' : '精神'}
           </h1>
-          <span className="jingshen-status" data-state={isPhone ? 'phone' : kind}>
-            <span aria-hidden="true" />{isPhone ? call.label || '通话中' : status}
-            {!isPhone && mode === 'chat' && detail && <small title={detail}>{detail}</small>}
-          </span>
+          {!isPhone && <span className="jingshen-status" data-state={kind}>
+            <span aria-hidden="true" />{status}
+            {mode === 'chat' && detail && <small title={detail}>{detail}</small>}
+          </span>}
         </div>
         <div className="jingshen-header-actions">
           {nativePending > 0 && mode !== 'chat' && !isPhone && <button type="button" className="jingshen-pending-link"
             aria-label="返回通讯查看待处理请求" onClick={reveal}>{nativePending} 项待处理</button>}
-          {mode === 'chat' && !isPhone && <>
+          {mode === 'chat' && <>
+            <button type="button" ref={phoneEntry} className="jingshen-icon" title="语音通话" aria-label="语音通话"
+              disabled={!data || !!error || paused} onClick={() => { setMediaPanel(undefined); setMode('phone') }}><MediaIcon name="phone" /></button>
             <button type="button" className="jingshen-icon" title="选择主会话模型" aria-label="选择主会话模型"
-              disabled={!data || !!error} onClick={() => setMode('model')}><Icon name="model" /></button>
+              disabled={!data || !!error} onClick={() => { setMediaPanel(undefined); setMode('model') }}><Icon name="model" /></button>
             <button type="button" className="jingshen-icon" title="管理精神"
-              aria-label="管理精神" onClick={() => setMode('manage')}><Icon name="settings" /></button>
+              aria-label="管理精神" onClick={() => { setMediaPanel(undefined); setMode('manage') }}><Icon name="settings" /></button>
           </>}
+          {data && <VisionControls paused={paused || !isAuthorized(error)} minimized={!showing} hidden={!showChat && !isPhone}
+            open={mediaPanel === 'vision'} panelId={`${id}-vision`} onToggle={() => toggleMedia('vision')} onWatchingChange={setWatching} />}
+          {isPhone && <button type="button" className="jingshen-icon" title="语音选项" aria-label="语音选项"
+            aria-expanded={mediaPanel === 'voice'} aria-controls={`${id}-voice`} onClick={() => toggleMedia('voice')}><Icon name="settings" /></button>}
           <button type="button" className="jingshen-icon" title="缩小窗口" aria-label="缩小窗口" onClick={close}><Icon name="minus" /></button>
         </div>
       </header>
       <div className="jingshen-window-main">
         {isPhone ? <div className="jingshen-call-scene">
           <div className="jingshen-call-orbit"><SpiritFish activity={watchingVideo ? 'video' : 'idle'} mood={mood ?? null}
-            onCall speaking={call.speaking} /></div>
-          <p role="status">{call.label || '通话中'}</p>
+            onCall={onCall} speaking={call?.speaking} /></div>
+          <VoiceCall active={!!data && !paused && !error} optionsOpen={mediaPanel === 'voice'} optionsId={`${id}-voice`}
+            onCallChange={setCall} saveBreezeKey={saveBreezeKey} />
         </div> : mode === 'manage' ? <div className="jingshen-management">{renderManagement(leaveForSession)}</div>
           : mode === 'model' ? <div className="jingshen-model-view">
             {data ? renderModels(data.mainId) : <p>连接到主会话后可选择模型。</p>}
@@ -521,12 +548,8 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
         <span>{isAuthorized(error) ? error.message : '请在已连接的本机 Harness 中重新打开此窗口。'}</span>
         <button type="button" onClick={refresh}>重试</button>
       </div>}
-      <footer className="jingshen-footer" ref={footer} hidden={mode !== 'chat' && !isPhone}>
-        <div className="jingshen-media" data-call={isPhone || undefined}>
-          {showing && <VoiceCall key="voice" active={!!data && !paused && !error} onCallChange={setCall} saveBreezeKey={saveBreezeKey} />}
-          {data && <VisionControls key="vision" paused={paused || !isAuthorized(error)} minimized={!showing} onWatchingChange={setWatching} />}
-        </div>
-        {showChat && <form className="jingshen-compose" onSubmit={event => { event.preventDefault(); void attemptSend() }}>
+      {showChat && <footer className="jingshen-footer">
+        <form className="jingshen-compose" onSubmit={event => { event.preventDefault(); void attemptSend() }}>
           <div className="jingshen-compose-box">
             <textarea rows={1} aria-label="给精神发消息" value={draft} maxLength={8000}
               disabled={!canSend} placeholder={paused ? '恢复活动后发送消息' : '发消息给精神'}
@@ -540,8 +563,8 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
               disabled={!canSend || !draft.trim() || sending}><Icon name="send" /></button>
           </div>
           {sendError && <p role="alert">{sendError}</p>}
-        </form>}
-      </footer>
+        </form>
+      </footer>}
     </section>
   </div>
 }

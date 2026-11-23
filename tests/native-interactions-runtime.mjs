@@ -54,11 +54,11 @@ export async function verifyNativeInteractionsRuntime({ browserUrl, mainId, stat
     const approval = fish.getByRole('region', { name: '敏感操作审批' })
     const sensitive = async (label, inPhone = false) => {
       const cwd = join(state, label)
-      const callId = await submit([{ name: 'spirit_sessions', args: {
+      const callId = await submit([{ name: 'jingshen_sessions', args: {
         action: 'create', title: label, cwd, reason: '真实原生审批集成测试。',
       } }], inPhone)
       await approval.getByRole('button', { name: '允许一次' }).waitFor({ timeout: 30_000 })
-      assert.equal(await approval.getByText('spirit_sessions', { exact: true }).count(), 1)
+      assert.equal(await approval.getByText('jingshen_sessions', { exact: true }).count(), 1)
       assert(!existsSync(cwd), 'The native mutation is still waiting for authorization')
       assert.equal((await request('/trace')).pending.length, 0, 'The fixture must not own these approvals')
       return { cwd, callId }
@@ -116,10 +116,18 @@ export async function verifyNativeInteractionsRuntime({ browserUrl, mainId, stat
     evidence('the official native question carrier receives the exact option selected in the fish conversation')
     if (phoneCheck) {
       await poll(async () => (await inspect(mainId)).status === 'idle', 'native question turn finishes')
-      const phone = page.getByRole('button', { name: '接通并开麦' })
+      await fish.getByRole('button', { name: '语音通话' }).click()
+      await fish.getByRole('button', { name: '语音选项' }).click()
+      await fish.getByRole('combobox', { name: '通话输出' }).waitFor()
+      await fish.getByRole('button', { name: '视觉', exact: true }).click()
+      await fish.getByRole('button', { name: '开启摄像头' }).waitFor()
+      await fish.getByRole('button', { name: '视觉', exact: true }).click()
+      const phone = page.getByRole('button', { name: /^(仅转写并开麦|接通并开麦)$/ })
       await phone.click({ timeout: 30_000 })
       const hangUp = page.getByRole('button', { name: '挂断' })
       await hangUp.waitFor({ timeout: 30_000 })
+      await fish.getByRole('button', { name: '关麦' }).click()
+      await fish.getByRole('button', { name: '开麦' }).waitFor()
       const duringCall = await sensitive('native-ui-during-call', true)
       assert.equal(await page.locator('.jingshen-window[data-phone="true"]').count(), 1)
       const capturedCall = join(scratch, 'approval-in-call.png')

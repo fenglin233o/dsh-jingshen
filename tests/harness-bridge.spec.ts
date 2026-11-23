@@ -45,7 +45,7 @@ function fixture(options: HarnessBridgeOptions = {}) {
   const create = vi.fn(async (request: { sessionId?: string; cwd?: string }) => {
     const sessionId = request.sessionId ?? 'new-session'
     makeAgent(sessionId, request.cwd)
-    return { sessionId, agentPreset: 'dsh-spirit' }
+    return { sessionId, agentPreset: 'dsh-jingshen' }
   })
   const flush = vi.fn(async () => {})
   const open = vi.fn(async (id: string) => ({
@@ -92,7 +92,7 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
 
   it('preserves only an omitted preset on managed blank reuse, including the owners own later choice', async () => {
     const f = fixture(); f.makeAgent('managed')
-    let recorded = 'dsh-spirit', lastTurn = 0
+    let recorded = 'dsh-jingshen', lastTurn = 0
     const original = vi.fn(async function(this: unknown, request: { sessionId?: string; agentPreset?: string }) {
       expect(this).toBe(f.ctx.sessionController)
       recorded = request.agentPreset ?? 'standard'
@@ -104,7 +104,7 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
       agentPresets: { presetForSession: () => recorded } } as unknown as PresetContinuityContext
     const dispose = preserveManagedBlankPreset(ctx, id => id === 'managed')
     await ctx.sessionController.create({ sessionId: 'managed' as never, cwd: '/tmp/workspace' })
-    expect(original).toHaveBeenLastCalledWith({ sessionId: 'managed', cwd: '/tmp/workspace', agentPreset: 'dsh-spirit' })
+    expect(original).toHaveBeenLastCalledWith({ sessionId: 'managed', cwd: '/tmp/workspace', agentPreset: 'dsh-jingshen' })
     await ctx.sessionController.create({ sessionId: 'managed' as never, agentPreset: 'my-custom-preset' })
     await ctx.sessionController.create({ sessionId: 'managed' as never })
     expect(original).toHaveBeenLastCalledWith({ sessionId: 'managed', agentPreset: 'my-custom-preset' })
@@ -123,7 +123,7 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
     f.resolveAgent.mockReturnValueOnce(resolution.promise)
     const ctx = { sessionController: f.ctx.sessionController,
       agents: { turnBoundaryOf: () => ({ openTurnStartSeq: null, lastTurn: 0 }) },
-      agentPresets: { presetForSession: () => 'dsh-spirit' } } as unknown as PresetContinuityContext
+      agentPresets: { presetForSession: () => 'dsh-jingshen' } } as unknown as PresetContinuityContext
     const dispose = preserveManagedBlankPreset(ctx, () => true)
     const pending = ctx.sessionController.create({ sessionId: 'managed' as never })
     const replacement = vi.fn(async () => ({ sessionId: 'replacement' as never }))
@@ -159,7 +159,7 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
     expect(f.calls.inject).toHaveBeenCalledTimes(1)
     const queued = agent.inbox.nextTurn[0]!
     expect(queued.source).toEqual({ kind: 'spirit', form: 'relay', requestId: 'queue', targetSessionId: 'existing', fromSessionId: 'main', delivery: 'queue' })
-    expect(queued.content[0]).toMatchObject({ text: expect.stringContaining('精神（Spirit）发送') })
+    expect(queued.content[0]).toMatchObject({ text: expect.stringContaining('精神发送') })
     expect(Object.isFrozen(queued)).toBe(true)
     expect(agent.inbox.nextStep[1]!.source).toMatchObject({ kind: 'spirit', form: 'notice', summary: 'Observation', delivery: 'context' })
     expect(f.calls.close).toHaveBeenCalledTimes(3)
@@ -186,7 +186,18 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
     expect(await restarted.post(input)).toMatchObject({ duplicate: true, accepted: true })
     expect(f.calls.followup).toHaveBeenCalledTimes(1)
     expect(f.logs.get('a')!.some(event => event.type === 'user/message')).toBe(false)
-    expect(f.calls.cancel).toHaveBeenCalledWith('a', { kind: 'hook', reason: 'Spirit stop request' }, { keepInbox: false })
+    expect(f.calls.cancel).toHaveBeenCalledWith('a', { kind: 'hook', reason: '精神请求停止' }, { keepInbox: false })
+  })
+
+  it('recognizes a previously admitted message with its old attribution header', async () => {
+    const f = fixture(), agent = f.makeAgent('a')
+    const input = { sessionId: 'a', requestId: 'old', text: 'existing message' }
+    agent.followup({ id: spiritMessageId(input.sessionId, input.requestId), role: 'user',
+      content: [{ type: 'text', text: `【精神（Spirit）发送；来源：精神后台】\n\n${input.text}` }],
+      source: { kind: 'spirit', form: 'relay', requestId: 'old', targetSessionId: 'a', delivery: 'queue' } })
+    expect(await f.bridge.post(input)).toMatchObject({ duplicate: true, accepted: true })
+    expect(f.calls.followup).toHaveBeenCalledTimes(1)
+    await expect(f.bridge.post({ ...input, text: 'changed' })).rejects.toThrow('different content')
   })
 
   it('retries failed durability acknowledgement without sending twice', async () => {
@@ -227,8 +238,8 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
 
   it('uses the actual session identity returned by native creation and preflights invalid selections', async () => {
     const f = fixture()
-    f.create.mockImplementationOnce(async () => { f.makeAgent('replacement'); return { sessionId: 'replacement', agentPreset: 'dsh-spirit' } })
-    const created = await f.bridge.create({ sessionId: 'nonblank-requested', cwd: '/tmp/workspace', title: 'New conversation', agentPreset: 'dsh-spirit', permissionPreset: 'danger-full-access', model: { provider: 'test', model: 'base' } })
+    f.create.mockImplementationOnce(async () => { f.makeAgent('replacement'); return { sessionId: 'replacement', agentPreset: 'dsh-jingshen' } })
+    const created = await f.bridge.create({ sessionId: 'nonblank-requested', cwd: '/tmp/workspace', title: 'New conversation', agentPreset: 'dsh-jingshen', permissionPreset: 'danger-full-access', model: { provider: 'test', model: 'base' } })
     expect(created).toMatchObject({ sessionId: 'replacement', permissionPreset: 'danger-full-access' })
     expect(f.setPermission).toHaveBeenCalledWith(expect.objectContaining({ id: 'replacement' }), 'danger-full-access')
     expect(f.calls.select).toHaveBeenCalledWith('replacement', { provider: 'test', model: 'base' })
@@ -330,7 +341,7 @@ describe('Harness 0.2.2-rc.5 native Spirit bridge', () => {
 
   it('pins native pagination while finding the current turn boundary', async () => {
     const f = fixture()
-    f.page.mockResolvedValueOnce({ cursor: 52, hasMore: true, records: [record(51, 'assistant/message', { text: 'working' }), record(52, 'tool/call', { name: 'spirit_start' })] })
+    f.page.mockResolvedValueOnce({ cursor: 52, hasMore: true, records: [record(51, 'assistant/message', { text: 'working' }), record(52, 'tool/call', { name: 'jingshen_start' })] })
     f.page.mockResolvedValueOnce({ cursor: 52, hasMore: true, records: [record(20, 'user/message', user('owner')), record(21, 'user/message', user('context', 'runtime-context'))] })
     f.page.mockResolvedValueOnce({ cursor: 52, hasMore: false, records: [record(10, 'turn/start', { turn: 2 }), record(11, 'step/start', { turn: 2, step: 1 })] })
     expect(await f.bridge.latestOwnerRequest('a')).toMatchObject({ id: 'owner' })

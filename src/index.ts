@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,7 +27,7 @@ import { HarnessBridge, preserveManagedBlankPreset, spiritMessageId } from './ha
 import { SelfChangeBook, SelfChangeBeginInput, SelfChangeCheckInput } from './self-change.ts'
 import { ActivationService } from './activation.ts'
 import { Continuity, OrientationInput, publicSessionPage, type TurnReference } from './continuity.ts'
-import { Mediation, ReplyInput, REPLY_METHOD, replyToolName } from './mediation.ts'
+import { Mediation, ReplyInput, MAIN_REPLY_METHOD, REPLY_METHOD, replyToolName, sayToolName } from './mediation.ts'
 import { SpiritDelegation } from './delegation.ts'
 import { OpportunityTurn } from './opportunity-turn.ts'
 import { METHOD, MAIN, WORKER, CONVERSATION } from './prompts.ts'
@@ -45,8 +45,12 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const runtimeMetadata = { version: String(JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).version),
   runtimeHash: createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex') }
 export interface SpiritConfig { stateDir: string; openIntervalMinutes: number; concurrency: number; maxRevisions: number; sourceRoot: string; harnessSourceRoot: string }
+const dataHome = join(homedir(), '.local', 'share')
+const previousState = join(dataHome, 'dsh-personal-spirit')
+const defaultState = process.env.JINGSHEN_STATE_DIR || process.env.SPIRIT_STATE_DIR
+  || (existsSync(previousState) ? previousState : join(dataHome, 'dsh-jingshen'))
 export const Config: s<Partial<SpiritConfig>, SpiritConfig> = s.object({
-  stateDir: s.string().default(process.env.SPIRIT_STATE_DIR || join(homedir(), '.local', 'share', 'dsh-personal-spirit')).description('精神的持续记录目录；保留旧版本位置。'),
+  stateDir: s.string().default(defaultState).description('精神的持续记录目录；保留旧版本位置。'),
   openIntervalMinutes: s.number().min(0).max(1440).default(15).description('完全访问下、主会话空闲时提供开放判断机会的最短间隔（分钟）。0 关闭。'),
   concurrency: s.number().min(1).max(32).step(1).default(2).description('同时推进的独立事情数量。'),
   maxRevisions: s.number().min(0).step(1).default(0).description('可选的结构化修订资源上限；0 表示不设固定上限。'),
@@ -87,22 +91,31 @@ const IntentToolInput = z.object(intentShape).strict()
 const jsonValue = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? null))
 const brief = (value: string, limit = 8000) => value.length <= limit ? value : `${value.slice(0, limit - 40)}…［已截短，原记录可另行读取］`
 const presetFor = (mode: AccessMode) => mode === 'full' ? 'danger-full-access' : 'workspace-write'
-const spiritPreset = 'dsh-spirit'
-const legacySpiritPreset = 'dsh-personal-spirit'
+const jingshenPreset = 'dsh-jingshen'
+const legacyPresetIds = new Set(['dsh-spirit', 'dsh-personal-spirit'])
 
 /** The rc.5 registry has no hidden alias. Resolve old saved identities to the
  * live composition before opening their logs, then record the new selection. */
-function preserveLegacySpiritPreset(ctx: Context): () => void {
+function preserveLegacyPreset(ctx: Context): () => void {
   const registry = ctx.agentPresets
   const previousResolve = Object.getOwnPropertyDescriptor(registry, 'resolve')
   const previousMount = Object.getOwnPropertyDescriptor(registry, 'mount')
+  const previousDefault = Object.getOwnPropertyDescriptor(registry, 'defaultId')
   const nativeResolve = registry.resolve, nativeMount = registry.mount
-  const alias = (id?: string) => (id ?? registry.defaultId) === legacySpiritPreset ? spiritPreset : id
+  const alias = (id?: string) => id !== undefined && legacyPresetIds.has(id) ? jingshenPreset : id
+  // The roster and native create/switch APIs all read this getter. Leave the
+  // user's stored selectedDefault untouched, so old profiles still work.
+  const defaultId = () => alias(registry.config.selectedDefault.get() ?? registry.config.default)!
   const resolve: typeof nativeResolve = id => nativeResolve.call(registry, alias(id))
   const mount: typeof nativeMount = (agentCtx, id) => nativeMount.call(registry, agentCtx, alias(id))
+  Object.defineProperty(registry, 'defaultId', { configurable: true, get: defaultId })
   Object.defineProperty(registry, 'resolve', { configurable: true, writable: true, value: resolve })
   Object.defineProperty(registry, 'mount', { configurable: true, writable: true, value: mount })
   return () => {
+    if (Object.getOwnPropertyDescriptor(registry, 'defaultId')?.get === defaultId) {
+      if (previousDefault) Object.defineProperty(registry, 'defaultId', previousDefault)
+      else Reflect.deleteProperty(registry, 'defaultId')
+    }
     if (Object.getOwnPropertyDescriptor(registry, 'mount')?.value === mount) {
       if (previousMount) Object.defineProperty(registry, 'mount', previousMount)
       else Reflect.deleteProperty(registry, 'mount')
@@ -145,7 +158,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
   const admin = new HarnessBridge(ctx, { signal: lifetime.signal })
   const current = () => { if (!owner) throw new Error('精神尚未就绪'); return owner.current() }
   const belongs = (agent: Agent, preset = ctx.agentPresets.presetForSession(agent.session)) =>
-    agent.session.header.origin !== 'subagent' && (agent.id === mainId || (preset ?? ctx.agentPresets.composedPreset(agent.ctx)) === spiritPreset)
+    agent.session.header.origin !== 'subagent' && (agent.id === mainId || (preset ?? ctx.agentPresets.composedPreset(agent.ctx)) === jingshenPreset)
   const ticketFor = (sessionId: string) => app?.workerTicket(sessionId)
   const keepsNativePermissions = (agent: Agent): boolean => {
     const item = owner?.session(agent.id)
@@ -291,7 +304,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       check()
       if ('error' in result && result.error.code === 'session/not-found') {
         mkdirSync(directory, { recursive: true, mode: 0o700 })
-        const created = await native.create({ sessionId: id, cwd: directory, title, agentPreset: 'dsh-spirit', permissionPreset: presetFor(current().mode),
+        const created = await native.create({ sessionId: id, cwd: directory, title, agentPreset: jingshenPreset, permissionPreset: presetFor(current().mode),
           ...(kind === 'main' ? { privateMain: true } : {}), signal: scope?.signal })
         check()
         if (created.sessionId !== id) throw new Error('宿主创建了不同的会话标识；请检查原会话，不自动替换历史')
@@ -342,6 +355,8 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
     if (closed || !app || !owner || !autonomy || !changes || !owner.managed(agent.id) || !belongs(agent) || bindings.has(agent)) return
     const service = app, control = owner, thinking = autonomy, book = changes
     const task = ticketFor(agent.id), registered: (() => void)[] = []
+    const main = agent.id === mainId
+    const ownerQueued = () => agent.inbox.nextTurn.some(message => message.source.kind === 'user' && !Object.hasOwn(message.source, 'principal'))
     const inputs = new OpportunityTurn(agent.id, mainId, (id, admission) => thinking.assertDispatchCurrent(agent.id, id, admission))
     turnInputs.set(agent, inputs)
     bindings.set(agent, registered)
@@ -357,7 +372,12 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       try { assertActive(agent, revision, step.signal) }
       catch { return { kind: 'reject' } }
       try {
-        const messages = inputs.admit(step.turn, step.messages, decision.messages)
+        const relevant = main ? decision.messages.filter(message => message.source.kind !== 'spirit-mediation'
+          || message.source.turn === step.turn && !ownerQueued()) : decision.messages
+        if (main && relevant.length !== decision.messages.length && step.messages.every(message => message.source.kind === 'spirit-mediation')) {
+          return { ...decision, messages: [] }
+        }
+        const messages = inputs.admit(step.turn, step.messages, relevant)
         const startSeq = turnStart(agent)
         if (startSeq === null) return { kind: 'reject' }
         mediation?.admit({ sessionId: agent.id, startSeq, turn: step.turn, step: step.step, messages,
@@ -390,9 +410,14 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
         return { kind: 'reject' }
       }
     }))
-    registered.push(agent.ctx.on('agent/turn-stopping', ({ turn, signal }) => {
+    registered.push(agent.ctx.on('agent/turn-stopping', async ({ turn, signal }) => {
       signal.throwIfAborted()
-      if (voiceTurns?.stopped(agent, turn)) return
+      if (!mediation?.hasContinuation(agent.id, turn) || voiceTurns?.stopped(agent, turn) || main && ownerQueued()) return
+      if (main) {
+        await syncChat()
+        signal.throwIfAborted()
+        if (voiceTurns?.stopped(agent, turn) || ownerQueued() || agent.inbox.nextStep.length) return
+      }
       const continuation = mediation?.takeContinuation(agent.id, turn)
       if (continuation) agent.steer(continuation)
     }))
@@ -403,7 +428,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       try { checkCall(agent, exec) }
       catch (error) { return { kind: 'deny', reason: String(error) } }
       const native = keepsNativePermissions(agent)
-      if (native && (sensitiveSpiritCall(exec.name, exec.arguments) || exec.name === 'spirit_start' || exec.name === 'spirit_continue')) {
+      if (native && (sensitiveSpiritCall(exec.name, exec.arguments) || exec.name === 'jingshen_start' || exec.name === 'jingshen_continue')) {
         return { kind: 'ask', reason: `此会话使用原生权限。精神申请执行 ${exec.name}，可能涉及其他会话、事务或安装源码：${brief(JSON.stringify(exec.arguments), 3000)}` }
       }
       if (sensitiveSpiritCall(exec.name, exec.arguments) && current().mode === 'ask') {
@@ -414,8 +439,8 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
     registered.push(agent.ctx.tools.guard(exec => {
       try { checkCall(agent, exec) }
       catch (error) { return String(error) }
-      const passive = ['spirit_memory', 'spirit_reflect'].includes(exec.name)
-        || exec.name === 'spirit_read' && (exec.arguments as { action?: unknown })?.action !== 'retry'
+      const passive = ['jingshen_memory', 'jingshen_reflect'].includes(exec.name)
+        || exec.name === 'jingshen_read' && (exec.arguments as { action?: unknown })?.action !== 'retry'
       if (task && (workerId(service.require(task.id)) !== agent.id || !liveTicket(service.require(task.id)))
         && !passive) return '这项执行已经结束；新的行动需要有效的继续或新事项。'
       if (task && !passive) {
@@ -435,7 +460,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
     registered.push(agent.ctx.systemPrompt.section({ name: PERSONA_PREFIX_SECTION, order: 0, text: '', interpolate: false }))
     registered.push(agent.ctx.systemPrompt.section({ name: PERSONA_SUFFIX_SECTION, order: 10000, text: '', interpolate: false }))
     registered.push(agent.ctx.systemPrompt.section({ name: 'spirit', order: 9999, interpolate: false,
-      text: `${METHOD}\n${task ? WORKER : agent.id === mainId ? MAIN : CONVERSATION}\n${REPLY_METHOD}\n源码目标：${JSON.stringify(book.targets)}` }))
+      text: `${METHOD}\n${task ? WORKER : main ? MAIN : CONVERSATION}\n${main ? MAIN_REPLY_METHOD : REPLY_METHOD}\n源码目标：${JSON.stringify(book.targets)}` }))
     // rc.5 refreshes required runtime context at admission, including the first request
     // after native compaction or resume. The current state also drives the scheduler.
     registered.push(agent.ctx.systemPrompt.context({ name: 'spirit-current', order: 560, required: true, interpolate: false,
@@ -448,7 +473,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
         return '精神当前活动（来自运行状态；引文与模型判断保留各自来源）：\n' + JSON.stringify({
           mainId, sessionId: agent.id, ownerControl: { mode: current().mode, state: current().state, revision: current().revision },
           orientation, activeIntents: activeIntents.items, activeIntentCount: activeIntents.total,
-          ...(activeIntents.total > activeIntents.items.length ? { moreIntents: 'spirit_read(action=intentions,activeOnly=true)，可按会话或事情筛选当前意向' } : {}),
+          ...(activeIntents.total > activeIntents.items.length ? { moreIntents: 'jingshen_read(action=intentions,activeOnly=true)，可按会话或事情筛选当前意向' } : {}),
           awaitingDecision: thinking.awaiting(agent.id),
           ...(currentVision?.active ? { vision: currentVision } : {}),
           ...(work ? { task: { id: work.id, title: work.title, scope: brief(work.mandate.scope, 800), ended: work.ended?.by } } : {}),
@@ -471,20 +496,24 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       }
       checkCall(agent, exec)
     }
-    register(replyToolName, '在本会话直接表达、交付一段后继续、等待或保持沉默。只有明确准许的公开正文会进入本人的原生会话。', ReplyInput,
+    register(replyToolName, main ? '交付一条完整消息，或在交付后再次独立判断。也可以等待或保持安静。' : '在本会话直接表达、交付一段后继续、等待或保持沉默。只有明确准许的公开正文会进入本人的原生会话。', ReplyInput,
       () => { throw new Error('当前调用没有经过精神的原生回答中介。') })
-    register('spirit_say', '选择是否向本人立即发布一条消息。每次调用独立出现于主聊天；可以不说，也不需要补写或重复同样的原生答复。', SayInput,
+    register(sayToolName, '选择是否向本人立即发布一条消息。每次调用独立出现于主聊天；可以不说，也不需要补写或重复同样的原生答复。', SayInput,
       async (input, exec) => {
         await authorizeSocial(exec)
         await syncChat()
         checkCall(agent, exec)
-        return conversation.say(input, turnSource(agent, exec), ctx.agents.turnBoundaryOf(agent.session).lastTurn)
+        const turn = ctx.agents.turnBoundaryOf(agent.session).lastTurn
+        if (voiceTurns?.stopped(agent, turn)) throw new Error('本人已打断这一轮发言')
+        const delivered = conversation.say(input, turnSource(agent, exec), turn)
+        mediation?.noteSay(agent.id, turn, delivered.text)
+        return delivered
       })
-    register('spirit_expression', '可选地做一个短暂社交表情；不会改变实际工作、媒体或睡眠状态。', ExpressionInput,
+    register('jingshen_expression', '可选地做一个短暂社交表情；不会改变实际工作、媒体或睡眠状态。', ExpressionInput,
       async (input, exec) => { await authorizeSocial(exec); return conversation.express(input, turnSource(agent, exec), current().revision) })
-    if (agent.id === mainId) register('spirit_rest', '可选择有限时间休息或发呆，暂歇无指定事项的开放机会。提前醒来用 wake；新本人消息也能唤醒。', RestInput,
+    if (agent.id === mainId) register('jingshen_rest', '可选择有限时间休息或发呆，暂歇无指定事项的开放机会。提前醒来用 wake；新本人消息也能唤醒。', RestInput,
       async (input, exec) => { await authorizeSocial(exec); return conversation.rest(input, turnSource(agent, exec), current().revision) })
-    register('spirit_orient', '修订所有精神会话当前共同采用的理解和做法。attention 可改变开放机会的调度。遇到其他会话的新版本须重新判断。', OrientationInput,
+    register('jingshen_orient', '修订所有精神会话当前共同采用的理解和做法。attention 可改变开放机会的调度。遇到其他会话的新版本须重新判断。', OrientationInput,
       (input, exec) => {
         const orientation = continuity.revise(input, turnSource(agent, exec))
         if (input.attention !== undefined) thinking.tick()
@@ -496,7 +525,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       memoryId: Id.optional(), reflectionId: Id.optional(), resultRound: z.number().int().positive().optional(),
       startSeq: z.number().int().nonnegative().optional(), throughSeq: z.number().int().nonnegative().optional(), beforeSeq: z.number().int().nonnegative().optional(),
       offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(100).default(32), reason: Text.optional() }).strict()
-    register('spirit_read', '读取实际任务、经验、记忆、意向和思考机会。trace 按实际 sessionId、startSeq 追溯公开交往，可使用 nextBeforeSeq 翻页。retry 须给出理由。', ReadInput, async (input, exec) => {
+    register('jingshen_read', '读取实际任务、经验、记忆、意向和思考机会。trace 按实际 sessionId、startSeq 追溯公开交往，可使用 nextBeforeSeq 翻页。retry 须给出理由。', ReadInput, async (input, exec) => {
       const withPage = <T,>({ items, total }: { items: readonly T[]; total: number }) => ({ items, total, offset: input.offset,
         limit: input.limit, hasMore: input.offset + input.limit < total, nextOffset: input.offset + input.limit < total ? input.offset + input.limit : null })
       const page = <T,>(values: readonly T[]) => withPage({ items: values.slice(input.offset, input.offset + input.limit), total: values.length })
@@ -546,19 +575,19 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
           revisits: withPage(thinking.recordsPage('revisits', input.offset, input.limit)), decisions: withPage(thinking.recordsPage('decisions', input.offset, input.limit)) },
         controls: current(), permission, watches: page(control.watches()), health: service.health.all }
     })
-    register('spirit_decline', '自行决定不承接当前本人请求。记录本次判断，不建立或派发任务。', z.object({ reason: Text }).strict(), async (input, exec) => {
+    register('jingshen_decline', '自行决定不承接当前本人请求。记录本次判断，不建立或派发任务。', z.object({ reason: Text }).strict(), async (input, exec) => {
       const request = await ownerRequestFor(agent, exec)
       if (!request) throw new Error('当前回合没有本人的请求')
       return { decision: service.decline(request, input.reason, exec.callId, request.turn) }
     })
-    register('spirit_start', '承接当前本人请求，或以 self 来源在持续授权内发起独立任务。明确依赖某个意向版本时同时提供 intentId、intentRevision。', StartInput, async (input, exec) => {
+    register('jingshen_start', '承接当前本人请求，或以 self 来源在持续授权内发起独立任务。明确依赖某个意向版本时同时提供 intentId、intentRevision。', StartInput, async (input, exec) => {
       const request = await workRequest(agent, exec, input)
       const value = service.open(request, { title: input.title, criteria: input.criteria })
       control.record('task-start', input.title, request.kind === 'self' ? request.reason : '本人当前回合的真实请求', agent.id)
       return { task: value }
     })
-    register('spirit_continue', '把本人当前请求或明确的自主判断交给已有事情；依赖更新的意向时提供其 ID 与版本。', ContinueInput, async (input, exec) => ({ task: service.followup(input.ticketId, await workRequest(agent, exec, input)) }))
-    register('spirit_stop', '停止一件事情。若依据本人的停止要求，保留本人原话及模型作出的停止判断；自主停止记录为 dropped。', z.object({ ticketId: Id.optional(), reason: Text, origin: z.enum(['owner', 'self']).default('self') }).strict(), async (input, exec) => {
+    register('jingshen_continue', '把本人当前请求或明确的自主判断交给已有事情；依赖更新的意向时提供其 ID 与版本。', ContinueInput, async (input, exec) => ({ task: service.followup(input.ticketId, await workRequest(agent, exec, input)) }))
+    register('jingshen_stop', '停止一件事情。若依据本人的停止要求，保留本人原话及模型作出的停止判断；自主停止记录为 dropped。', z.object({ ticketId: Id.optional(), reason: Text, origin: z.enum(['owner', 'self']).default('self') }).strict(), async (input, exec) => {
       const id = task?.id ?? input.ticketId
       if (!id) throw new Error('需要 ticketId')
       const request = input.origin === 'owner' ? await ownerRequestFor(agent, exec) : undefined
@@ -567,11 +596,11 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       control.record('task-stop', value.task.title, input.reason, agent.id)
       return value
     })
-    register('spirit_memory', '记录或修订有来源、有限度的记忆；模型记录不表示本人确认。', MemoryInput, (input, exec) => {
+    register('jingshen_memory', '记录或修订有来源、有限度的记忆；模型记录不表示本人确认。', MemoryInput, (input, exec) => {
       const source = realSource(agent, exec, input)
       return { memory: task ? service.book.remember(task.id, input, source) : service.book.rememberGlobal(input, source) }
     })
-    register('spirit_reflect', '记录实际理解的变化、根据、检验与限度；无需虚构矛盾或阶段。', ReflectionInput,
+    register('jingshen_reflect', '记录实际理解的变化、根据、检验与限度；无需虚构矛盾或阶段。', ReflectionInput,
       (input, exec) => ({ reflection: service.book.reflect(task?.id, input, realSource(agent, exec, input)) }))
     const intentSource = (exec: ToolRunContext) => {
       const turn = turnSource(agent, exec)
@@ -582,9 +611,9 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       service.reconcileIntents()
       return { intent }
     })
-    register('spirit_intent', '形成、修订或放下可追溯的意向。revisit 只安排一次思考机会。', IntentToolInput,
+    register('jingshen_intent', '形成、修订或放下可追溯的意向。revisit 只安排一次思考机会。', IntentToolInput,
       (input, exec) => recordIntent({ ...input, sessionId: input.expectedRevision !== undefined && input.id ? thinking.getIntent(input.id).sessionId : mainId, source: intentSource(exec) }))
-    register('spirit_decide', '对收到的思考机会明确作出判断；接收消息本身不代表思考已经完成。', DecisionInput, (input, exec) => {
+    register('jingshen_decide', '对收到的思考机会明确作出判断；接收消息本身不代表思考已经完成。', DecisionInput, (input, exec) => {
       if (thinking.getOpportunity(input.opportunityId).sessionId !== agent.id) throw new Error('思考机会属于另一个会话')
       return service.store.atomic(() => {
         const decision = thinking.decide(input, turnSource(agent, exec))
@@ -592,13 +621,13 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
         return { decision }
       })
     })
-    register('spirit_revisit', '根据当前意向安排一次具体时点或可观察事件后的再考虑。', z.object({ intentId: Id, expectedRevision: z.number().int().nonnegative(), reason: Text, revisit: RevisitInput }).strict(), (input, exec) => {
+    register('jingshen_revisit', '根据当前意向安排一次具体时点或可观察事件后的再考虑。', z.object({ intentId: Id, expectedRevision: z.number().int().nonnegative(), reason: Text, revisit: RevisitInput }).strict(), (input, exec) => {
       const intent = thinking.getIntent(input.intentId)
       return recordIntent({ id: intent.id, expectedRevision: input.expectedRevision, sessionId: intent.sessionId, statement: intent.statement,
         reason: input.reason, state: 'waiting', source: intentSource(exec), affairId: intent.affairId,
         affairRevision: intent.affairRevision, eventIds: intent.eventIds, revisit: input.revisit })
     })
-    register('spirit_sessions', '查阅、创建和联系 Harness 会话，选择模型与思考强度。发出的内容明确归于精神；post 接收回执不表示模型完成。', SessionsInput, async (input, exec) => {
+    register('jingshen_sessions', '查阅、创建和联系 Harness 会话，选择模型与思考强度。发出的内容明确归于精神；post 接收回执不表示模型完成。', SessionsInput, async (input, exec) => {
       switch (input.action) {
         case 'list': return bridge.list({ limit: input.limit, offset: input.offset, signal: exec.signal })
         case 'read': return publicSessionPage(await bridge.read(input.sessionId, { ...input, signal: exec.signal }))
@@ -607,7 +636,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
         case 'create': {
           const selected = input.selection ?? agent.model.current()
           const created = await bridge.create({ title: input.title, cwd: input.cwd ?? agent.session.header.cwd ?? join(config.stateDir, 'workspace'),
-            agentPreset: 'dsh-spirit', permissionPreset: presetFor(current().mode), ...(selected ? { model: selected } : {}), signal: exec.signal })
+            agentPreset: jingshenPreset, permissionPreset: presetFor(current().mode), ...(selected ? { model: selected } : {}), signal: exec.signal })
           checkCall(agent, exec)
           control.manage(created.sessionId, input.title, input.reason, 'initiative')
           const child = await resolve(created.sessionId); checkCall(agent, exec); setNativePermission(child); bind(child)
@@ -629,7 +658,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
         case 'unwatch': control.unwatch(input.sessionId); return { unwatched: input.sessionId }
       }
     })
-    register('spirit_change', '记录源码候选、比较、原生执行验证、应用、回退或请求激活；文件改变与运行版本生效分别记录。', ChangeInput, async (input, exec) => {
+    register('jingshen_change', '记录源码候选、比较、原生执行验证、应用、回退或请求激活；文件改变与运行版本生效分别记录。', ChangeInput, async (input, exec) => {
       const changeAllowed = () => {
         checkCall(agent, exec)
         if (activation?.list().some(receipt => ['requested', 'restarting', 'booting'].includes(receipt.status))) {
@@ -656,7 +685,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
           changeAllowed()
           const batch = await agent.ctx.tools.execute({ agent, signal: exec.signal, maxParallelToolCalls: 1,
             calls: [{ type: 'tool-call', id: ToolCallId(`spirit-check:${exec.callId}:${key(command.target, command.command)}`), name: process.platform === 'win32' ? 'pwsh' : 'bash',
-              arguments: JSON.stringify({ description: 'Verify the proposed Spirit source changes', command: command.command, workdir: command.cwd, timeoutMs: input.timeoutMs, run_in_background: false }) }] })
+              arguments: JSON.stringify({ description: '验证精神的候选源码改动', command: command.command, workdir: command.cwd, timeoutMs: input.timeoutMs, run_in_background: false }) }] })
           const result = batch.results[0]?.result
           if (!result || result.isError) throw new Error(result?.isError ? result.error.message : '宿主没有返回检查结果')
           const value = result.value as { kind?: string; exitCode?: number | null; timedOut?: boolean; aborted?: boolean; stdout?: { text?: string; truncated?: boolean }; stderr?: { text?: string; truncated?: boolean } }
@@ -675,11 +704,11 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       }
     })
     if (task) {
-      register('spirit_frame', '按需明确当前对象、判断、尺度和限度。', FrameInput, input => ({ frame: service.book.frame(task.id, input) }))
-      register('spirit_evidence', '记录可以追溯的材料；推断明确归为 inference。', EvidenceInput, input => ({ evidence: service.book.evidence(task.id, input) }))
-      register('spirit_examine', '按当前理解自己的尺度检验，记录具体成立处和矛盾。', ExaminationInput, input => ({ examination: service.book.examine(task.id, input) }))
-      register('spirit_revise', '依据具体检验修订理解，保留成立内容和形成史。', RevisionInput, input => ({ frame: service.book.revise(task.id, input) }))
-      register('spirit_report', '如实报告实际成果、进展、等待或阻碍；结构化哲学表格不是交付前置条件。', z.object({
+      register('jingshen_frame', '按需明确当前对象、判断、尺度和限度。', FrameInput, input => ({ frame: service.book.frame(task.id, input) }))
+      register('jingshen_evidence', '记录可以追溯的材料；推断明确归为 inference。', EvidenceInput, input => ({ evidence: service.book.evidence(task.id, input) }))
+      register('jingshen_examine', '按当前理解自己的尺度检验，记录具体成立处和矛盾。', ExaminationInput, input => ({ examination: service.book.examine(task.id, input) }))
+      register('jingshen_revise', '依据具体检验修订理解，保留成立内容和形成史。', RevisionInput, input => ({ frame: service.book.revise(task.id, input) }))
+      register('jingshen_report', '如实报告实际成果、进展、等待或阻碍；结构化哲学表格不是交付前置条件。', z.object({
         state: z.enum(['progress', 'waiting', 'ready', 'blocked', 'failed', 'dropped']), summary: z.string().trim().min(1).max(12000), limits: z.string().max(8000).default(''),
         check: z.string().max(8000).default(''), evidenceIds: z.array(Id).max(64).default([]), question: z.string().trim().min(1).max(2000).nullable().optional(),
       }).strict(), ({ limits, check, evidenceIds, ...report }, exec) => ({ task: service.report(task.id, report, limits, evidenceIds, check, turnSource(agent, exec)) }))
@@ -837,6 +866,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
       },
     })
     disposers.push(vision.dispose)
+    const nativeMediation = mediation = new Mediation(app.store, options => ctx.llm.stream(options), mainId)
     delegation = new SpiritDelegation(ctx, {
       owns: root => !!owner?.managed(root.id) && ctx.agents.get(root.id) === root && belongs(root),
       revision: () => current().revision,
@@ -847,21 +877,22 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
           throw new Error('原执行已经结束')
         }
         if (task) {
+          app!.assertTaskIntent(task.id)
           const source = app!.book.get(task.id).latestSource
           if (source.kind === 'self' && source.grantRevision !== revision) throw new Error('原执行所依据的本人授权已经改变')
         }
       },
-    })
+    }, admission => nativeMediation.admit(admission))
     continuity = new Continuity(app.store)
-    const nativeMediation = mediation = new Mediation(app.store, options => ctx.llm.stream(options))
     disposers.push(ctx.on('llm/stream', (options, next) => {
       if (!options.sessionId || !isAgentLoopRequest(options)) return next()
       const live = ctx.agents.get(options.sessionId)
-      if (options.sessionId !== mainId && (!live || !bindings.has(live) || !belongs(live))) return next()
+      if (options.sessionId !== mainId && !nativeMediation.admitted(options.sessionId)
+        && (!live || (!belongs(live) && !delegation?.mediates(live)))) return next()
       return nativeMediation.stream(options.sessionId, options, next)
     }))
     disposers.push(ctx.on('session/event', (session, event) => nativeMediation.observe(session.id, event)))
-    disposers.push(preserveLegacySpiritPreset(ctx))
+    disposers.push(preserveLegacyPreset(ctx))
     disposers.push(registerFishAssets(ctx, packageRoot))
     disposers.push(preserveManagedBlankPreset(ctx, id => !closed && !ctx.workspaceRegistry.archivedSessionIds.includes(id as SessionId), mainId))
     changes = new SelfChangeBook({ stateDir: config.stateDir, targets: [{ id: 'spirit', root: config.sourceRoot, label: '精神插件', activation: 'plugin-reload' },
@@ -901,9 +932,9 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
     } })
     syncAutonomy()
     const participate = (agent: Agent, preset = ctx.agentPresets.presetForSession(agent.session)) => {
-      if (preset === legacySpiritPreset && ctx.agentPresets.composedPreset(agent.ctx) === spiritPreset) {
-        agent.session.append('agent-preset/selected', { agentPreset: spiritPreset })
-        preset = spiritPreset
+      if (preset && legacyPresetIds.has(preset) && ctx.agentPresets.composedPreset(agent.ctx) === jingshenPreset) {
+        agent.session.append('agent-preset/selected', { agentPreset: jingshenPreset })
+        preset = jingshenPreset
       }
       if (agent.session.header.origin === 'subagent') return
       const selected = belongs(agent, preset)

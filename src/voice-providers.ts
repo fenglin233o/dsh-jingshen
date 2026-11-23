@@ -71,6 +71,16 @@ async function streamPcm(target: Endpoint, request: object, signal: AbortSignal,
   return result.body
 }
 
+// Select a whole provider configuration together. A new URL must never inherit
+// a credential supplied for the old provider's URL.
+function providerSettings(env: NodeJS.ProcessEnv, group: 'ASR' | 'TTS'): NodeJS.ProcessEnv {
+  const current = `JINGSHEN_${group}_`
+  const prefix = Object.keys(env).some(key => key.startsWith(current)) ? current : `SPIRIT_${group}_`
+  return Object.fromEntries(Object.entries(env)
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([key, value]) => [key.slice(prefix.length), value]))
+}
+
 export class VoiceProviderDiscovery {
   private readonly env: NodeJS.ProcessEnv
   private readonly lifecycle = new AbortController()
@@ -80,16 +90,16 @@ export class VoiceProviderDiscovery {
   constructor(private readonly ctx: Context, env = process.env) { this.env = env }
 
   private recognition(): Recognition | null {
-    const env = this.env
-    if (env.SPIRIT_ASR_BASE_URL) {
-      const target = endpoint(env.SPIRIT_ASR_BASE_URL, env.SPIRIT_ASR_API_KEY)
+    const env = providerSettings(this.env, 'ASR')
+    if (env.BASE_URL) {
+      const target = endpoint(env.BASE_URL, env.API_KEY)
       return {
         info: { name: 'OpenAI 兼容语音转写', location: target.location },
         transcribe: async (wav, signal) => {
           const form = new FormData()
-          form.set('file', new Blob([wav], { type: 'audio/wav' }), 'spirit.wav')
-          form.set('model', env.SPIRIT_ASR_MODEL ?? 'whisper-1')
-          if (env.SPIRIT_ASR_LANGUAGE !== 'auto') form.set('language', env.SPIRIT_ASR_LANGUAGE ?? 'zh')
+          form.set('file', new Blob([wav], { type: 'audio/wav' }), 'jingshen.wav')
+          form.set('model', env.MODEL ?? 'whisper-1')
+          if (env.LANGUAGE !== 'auto') form.set('language', env.LANGUAGE ?? 'zh')
           const result = await remoteFetch(target, 'audio/transcriptions', { method: 'POST', body: form },
             AbortSignal.any([signal, AbortSignal.timeout(45_000)]))
           if (!result.ok) { await result.body?.cancel(); throw new Error(`语音转写服务未接受请求（HTTP ${result.status}）`) }
@@ -115,7 +125,7 @@ export class VoiceProviderDiscovery {
   }
 
   private localSynthesis(kokoroRequested: boolean): Promise<Endpoint | undefined> {
-    if (this.env.SPIRIT_TTS_LOCAL_PROBE === '0') return Promise.resolve(undefined)
+    if (providerSettings(this.env, 'TTS').LOCAL_PROBE === '0') return Promise.resolve(undefined)
     const target = endpoint(kokoroRequested ? kokoroUrl : characterUrl)
     return this.probeSynthesis(target, kokoroRequested ? 'kokoro' : characterModel,
       item => kokoroRequested ? !!item.id?.toLowerCase().includes('kokoro') : item.id === characterModel)
@@ -135,10 +145,10 @@ export class VoiceProviderDiscovery {
   }
 
   private async audioCppSynthesis(): Promise<Synthesis | null> {
-    const env = this.env
-    const address = env.SPIRIT_TTS_BASE_URL
-    const target = endpoint(address || audioCppUrl, address ? env.SPIRIT_TTS_API_KEY : undefined)
-    const model = env.SPIRIT_TTS_MODEL ?? 'breeze', voice = env.SPIRIT_TTS_VOICE ?? 'xiaoyu'
+    const env = providerSettings(this.env, 'TTS')
+    const address = env.BASE_URL
+    const target = endpoint(address || audioCppUrl, address ? env.API_KEY : undefined)
+    const model = env.MODEL ?? 'breeze', voice = env.VOICE ?? 'xiaoyu'
     // The v0.9.6 raw stream has no sample-rate or channel header. The advertised
     // Breeze streaming model supplies 24 kHz mono, unlike arbitrary model aliases.
     const confirmed = await this.probeSynthesis(target, `audiocpp:${model}`, item => item.id === model
@@ -174,16 +184,16 @@ export class VoiceProviderDiscovery {
   }
 
   async detect(): Promise<VoiceProviders> {
-    const env = this.env
+    const env = providerSettings(this.env, 'TTS')
     this.lifecycle.signal.throwIfAborted()
     const input = this.recognition()
-    if (env.SPIRIT_TTS_PROTOCOL === 'breezeblue') return this.breeze(input)
-    if (env.SPIRIT_TTS_PROTOCOL === 'audiocpp') return { input, output: await this.audioCppSynthesis() }
-    const kokoroRequested = /kokoro/iu.test(env.SPIRIT_TTS_MODEL ?? '') || (!env.SPIRIT_TTS_MODEL && /^[a-z][fm]_/iu.test(env.SPIRIT_TTS_VOICE ?? ''))
-    const openai = env.SPIRIT_TTS_PROTOCOL === 'openai' || /^(gpt-4o-mini-tts|tts-1|tts-1-hd)$/u.test(env.SPIRIT_TTS_MODEL ?? '')
-    const address = env.SPIRIT_TTS_BASE_URL || (openai ? 'https://api.openai.com/v1' : undefined)
-    if (!address && !env.SPIRIT_TTS_MODEL && !kokoroRequested) return this.breeze(input)
-    if (!address && env.SPIRIT_TTS_MODEL === BUNDLED_VOICE_MODEL) {
+    if (env.PROTOCOL === 'breezeblue') return this.breeze(input)
+    if (env.PROTOCOL === 'audiocpp') return { input, output: await this.audioCppSynthesis() }
+    const kokoroRequested = /kokoro/iu.test(env.MODEL ?? '') || (!env.MODEL && /^[a-z][fm]_/iu.test(env.VOICE ?? ''))
+    const openai = env.PROTOCOL === 'openai' || /^(gpt-4o-mini-tts|tts-1|tts-1-hd)$/u.test(env.MODEL ?? '')
+    const address = env.BASE_URL || (openai ? 'https://api.openai.com/v1' : undefined)
+    if (!address && !env.MODEL && !kokoroRequested) return this.breeze(input)
+    if (!address && env.MODEL === BUNDLED_VOICE_MODEL) {
       const output: Synthesis | null = this.bundled.available('tts') ? {
         info: { name: '小肥鱼 · 轻声普通话', model: BUNDLED_VOICE_MODEL, voice: 'xiaoyu', location: 'host-local' },
         stream: (message, signal) => this.bundled.synthesize({ text: message.text,
@@ -191,18 +201,18 @@ export class VoiceProviderDiscovery {
       } : null
       return { input, output }
     }
-    if (!address && !kokoroRequested && env.SPIRIT_TTS_MODEL !== characterModel) return { input, output: null }
-    const target = address ? endpoint(address, env.SPIRIT_TTS_API_KEY)
+    if (!address && !kokoroRequested && env.MODEL !== characterModel) return { input, output: null }
+    const target = address ? endpoint(address, env.API_KEY)
       : await this.localSynthesis(kokoroRequested)
     if (!target) return { input, output: null }
     const url = new URL(target.url)
     const officialOpenAI = url.hostname === 'api.openai.com'
     const isCharacterEndpoint = target.location === 'host-local' && url.port === '8891'
-    const model = env.SPIRIT_TTS_MODEL ?? (officialOpenAI ? 'gpt-4o-mini-tts' : isCharacterEndpoint ? characterModel : 'kokoro')
+    const model = env.MODEL ?? (officialOpenAI ? 'gpt-4o-mini-tts' : isCharacterEndpoint ? characterModel : 'kokoro')
     const character = model === characterModel
     const kokoro = /kokoro/iu.test(model)
-    const voice = env.SPIRIT_TTS_VOICE ?? (character ? 'xiaoyu' : kokoro ? 'zf_xiaobei' : 'marin')
-    const expressive = !character && (env.SPIRIT_TTS_STYLE === 'instructions' || (env.SPIRIT_TTS_STYLE !== 'pace' && model.includes('mini-tts')))
+    const voice = env.VOICE ?? (character ? 'xiaoyu' : kokoro ? 'zf_xiaobei' : 'marin')
+    const expressive = !character && (env.STYLE === 'instructions' || (env.STYLE !== 'pace' && model.includes('mini-tts')))
     const name = character && voice === 'xiaoyu' ? '小肥鱼 · 中文动画少女声'
       : `${kokoro ? 'Kokoro' : officialOpenAI ? 'OpenAI' : model} · ${voice}`
     return {

@@ -1,17 +1,18 @@
 # An initial, editable capability composition. No persona or philosophical stage machine.
-# In the profile using Spirit, ordinary new conversations participate by default.
+# Ordinary new conversations in this profile use 精神 by default.
 # Harness still gives an explicitly selected preset (including selectedDefault) priority.
 - id: agent-preset-registry
   config:
-    default: dsh-spirit
+    default: dsh-jingshen
 
 - insert:
+    # Keep the loader entry IDs stable for existing profile configuration patches.
     - id: dsh-spirit
       name: dsh-jingshen
     - id: dsh-spirit-preset
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: dsh-spirit
+        id: dsh-jingshen
         name: 精神
         description: 从已有条件与具体经验出发，持续处理事务、形成判断并改造自身。
         order: 30

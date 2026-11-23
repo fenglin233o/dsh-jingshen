@@ -91,8 +91,7 @@ export class Conversation {
           const delivery = approvedReply(this.mainId, message.id)
           if (delivery || historical) {
             const text = textOf(message.content, '')
-            if (text.trim() && !this.store.db.prepare(`SELECT 1 FROM spirit_chat_message WHERE session_id=? AND turn=? AND author='spirit' AND text=?
-              AND json_extract(value,'$.source.kind')='say'`).get(this.mainId, turn, text)) {
+            if (text.trim()) {
               this.append({ id: this.nativeId(message.id), author: 'spirit', text, at: iso(event.time),
                 source: { kind: 'native', sessionId: this.mainId, seq: event.seq, messageId: message.id, turn,
                   ...(historical && !delivery ? { historical: true } : {}) },
