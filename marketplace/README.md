@@ -18,7 +18,7 @@ dsh plugin --profile spirit add "github:fenglin233o/dsh-jingshen#v0.2.0"
 dsh plugin --profile spirit add github:fenglin233o/dsh-jingshen
 ```
 
-市场安装功能和具体包的运行结果仍须分别验证；源码公开、Release 记录建立和目录收录是不同状态。当前材料不宣称已获得市场收录。
+社区目录已于 2026-11-17 合并「精神」的收录条目。投稿模板使用 AGI 架构探索（`agi`）分类，市场实际分类以社区目录默认分支上的条目为准。[原收录 PR](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15618) · [社区目录条目](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/data/plugins/fenglin233o__dsh-jingshen.yml)
 
 ## 已核实的发布路径
 
@@ -142,7 +142,7 @@ awesome-dsh-plugin 的具体规则：
 
 1. 新增 `data/plugins/<owner>__<repo>.yml`；子目录条目用 `owner__repo--personal.yml` 并让 `url` 指向子目录。只提交自己这一项，不改自动生成的 README。
 2. 添加 `dsh-plugin` topic，仓库应具有真实代码和 `dsh.bundle`。**可以在仓库满一天前提交 PR**；仓库创建满 **1 天**是通过年龄检查的条件，并非打开 PR 的前置条件。年龄是唯一失败原因时，保留原 PR 即可，不需要空提交或重开 PR。当前 `regate.yml` 按 `19 */6 * * *` 每六小时扫描；对同一 PR 的年龄失败重跑另有 **24 小时冷却**，还受重跑队列限制，因此不能承诺每个 PR 每六小时重跑或满一天就立即通过。
-3. 双语描述只陈述现有能力；当前条目选择 `workflow`。本次省略 `tarball`；以后增加该字段时，必须使用已可公开下载的 GitHub Release HTTPS `.tgz`。无需填写 `npm:` 字段，后者反而会被拒。
+3. 双语描述只陈述现有能力；投稿模板选择 `agi`（AGI 架构探索）。本次省略 `tarball`；以后增加该字段时，必须使用已可公开下载的 GitHub Release HTTPS `.tgz`。无需填写 `npm:` 字段，后者反而会被拒。
 4. CI 检查后由维护者阅读源码评审。合并后由社区构建发布目录；等待期间不能声称已收录。
 5. npm 包的 `repository` 必须正确指回该项目，社区才会自动建立 npm 映射。当前无 npm 的 GitHub 直接安装条目可进入其市场界面，但不进入该社区的原生索引导出；Release-only 条目同样如此。
 
