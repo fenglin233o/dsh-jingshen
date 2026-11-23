@@ -8,7 +8,11 @@
 2. 点通讯窗右上角的电话图标进入“语音通话”，打开右上角的“语音选项”，点击“配置 Breeze 密钥”（已有密钥时点“更新 Breeze 密钥”）。在专用输入框中填写后，点击“保存至 Harness”，通话会刷新语音配置。该操作通过 Harness 0.2.2-rc.5 的原生凭据服务在宿主保存 `BREEZE_API_KEY`。请勿把密钥发到聊天、填入其他插件页面或写入仓库。
 3. 在小肥鱼通讯窗选定主会话模型后，进入通话并在“语音选项”点击“检查语音”。点击“接通并开麦”后，在浏览器授权麦克风。通话时点击“关麦”可停止采集，点击“开麦”可恢复。开口或点击“打断朗读”都可打断当前朗读。挂断或返回通讯会释放麦克风。没有 Breeze 密钥时，可继续文字聊天，也可在识别服务可用时选用“仅语音转写”。
 
-标准包保留 Zipformer 中文 CTC 识别模型，转写使用宿主的 Sherpa-ONNX。默认云端朗读采用 `breeze-tts-2`、语言 `zh` 和音色 `voc_8yud7hz7c9q2`。接通通话后，新交付的公开消息按顺序单独朗读，宿主只为其中的正文请求 PCM 音频流。该条回复明确选择柔和、温暖、认真或俏皮语气时，宿主另附简短的表演提示，原文照发；默认和中性语气沿用音色本身的读法。麦克风录音、聊天历史和草稿不随合成请求发送。回复内容仍由选定的 Harness 聊天模型生成。[语音识别声明](../media/voice/local/asr/NOTICE)
+接通后直接说话。普通话、英语和句内中英混说都走同一套本机识别。你可以一会儿说中文，一会儿说英语，也可以保留一句里的英文名字或短语。
+
+开麦后，“等你开口”表示麦克风就绪。“语音选项”里的开口阈值默认 −42 dBFS，调高可减少杂音误触，声音很轻时可以调低。浏览器结合本机 WebRTC 人声检测、环境底噪和连续响度决定何时开始录音。录音带上开口前最多约 480 毫秒的缓冲，句中短停顿保留在同一段里，说完约 0.76 秒后开始转写。电话里可以核对刚听到的文字，也能看到精神已交付的回复字幕；选择“仅语音转写”时仍可直接读到回复。识别为空或含未知占位符时，界面会请你重说。播放中持续开口或点“打断朗读”可中止朗读。
+
+标准包随附 X-ASR 中英联合模型，在宿主本机完成识别，无需选择语言。在语音选项可查看本次实际采用的转写服务。默认云端朗读沿用同一个音色。纯中文和纯英文分别用 `breeze-tts-2` 的 `zh` 和 `en`；同一句含中英时，把完整双语文本交给 `breeze-tts-2-multilingual`。音色 ID 为 `voc_8yud7hz7c9q2`。接通通话后，新交付的公开消息按顺序单独朗读，宿主只为其中的正文请求 PCM 音频流。该条回复明确选择柔和、温暖、认真或俏皮语气时，宿主另附简短的表演提示，原文照发；默认和中性语气沿用音色本身的读法。麦克风录音、聊天历史和草稿不随合成请求发送。回复内容仍由选定的 Harness 聊天模型生成。[语音识别声明](../media/voice/local/asr/NOTICE)
 
 宿主发送 `enable_logging=false`，请求 Breeze 跳过生成历史记录。服务端仍可能保留运营或计费日志。打断或挂断会停止本地播放并取消仍在读取的流，费用和结算状态以 Breeze 账户明细为准。0.4.3 的验证使用正式 API 和迷糊版音色完成了 7 次中文合成。一次 3.92 秒的试听从发出请求到收到第一块音频耗时 0.921 秒。该时间包含网络与供应商处理，通话还需要浏览器排程播放。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
 
@@ -35,12 +39,14 @@ Harness 使用本地凭据文件时，可将 `BREEZE_API_KEY` 加入现有 `$DSH
 
 ### 选择本机朗读
 
-如想让浏览器所在设备负责朗读，可在“语音选项”的“通话输出”中手动选择“设备中文朗读”。设备须已安装普通话声线，且浏览器将它标为本机服务（`localService`）。界面显示实际选用的声线名称，麦克风转写仍由“检查语音”显示的识别服务处理。
+本机识别在公开真人录音上的字错率、英语词错率和中英混合样本表现见[语音识别评估](asr-evaluation-0.4.6.json)。
 
-要继续用 0.4.2 的 PrimeTTS v1b 轻盈中文女声，请从同版本发布下载 `dsh-jingshen-0.4.5-local-voice-assets.tgz`。先安装标准包，再将资产解压至实际加载的插件根目录，也就是包含该插件 `package.json` 的目录。压缩包提供 `media/voice/local/tts/` 和 `scripts/local-speech/ort/`，安装后仍使用同一个插件和 profile。曾显式配置 `JINGSHEN_TTS_PROTOCOL` 或 `JINGSHEN_TTS_BASE_URL` 时，先移除这两项设置再启动。
+如想让浏览器所在设备负责朗读，可在“语音选项”的“通话输出”中选择设备朗读。设备须已安装对应语言的声线，且浏览器将它标为本机服务（`localService`）。界面显示实际选用的声线名称，麦克风转写仍由“检查语音”显示的识别服务处理。
+
+要继续用 0.4.2 的 PrimeTTS v1b 轻盈中文女声，请从同版本发布下载 `dsh-jingshen-0.4.6-local-voice-assets.tgz`。先安装标准包，再将资产解压至实际加载的插件根目录，也就是包含该插件 `package.json` 的目录。压缩包提供 `media/voice/local/tts/` 和 `scripts/local-speech/ort/`，安装后仍使用同一个插件和 profile。曾显式配置 `JINGSHEN_TTS_PROTOCOL` 或 `JINGSHEN_TTS_BASE_URL` 时，先移除这两项设置再启动。
 
 ```sh
-tar -xzf /绝对路径/dsh-jingshen-0.4.5-local-voice-assets.tgz -C /绝对路径/dsh-jingshen
+tar -xzf /绝对路径/dsh-jingshen-0.4.6-local-voice-assets.tgz -C /绝对路径/dsh-jingshen
 JINGSHEN_TTS_MODEL=jingshen-light dsh --profile jingshen --no-open
 ```
 
@@ -52,8 +58,8 @@ JINGSHEN_TTS_MODEL=jingshen-light dsh --profile jingshen --no-open
 
 | 设置 | 用途 |
 | --- | --- |
-| `JINGSHEN_ASR_BASE_URL`、`JINGSHEN_ASR_MODEL`、`JINGSHEN_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务。未指定地址时，可继续使用 Harness 已选且可用的本机语音输入，其余情况使用随包普通话识别 |
-| `JINGSHEN_ASR_LANGUAGE` | 默认 `zh`；选择 `auto` 让服务自行判断语言 |
+| `JINGSHEN_ASR_BASE_URL`、`JINGSHEN_ASR_MODEL`、`JINGSHEN_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务。未指定地址时，可继续使用 Harness 已选且可用的本机语音输入，其余情况使用随包中英识别 |
+| `JINGSHEN_ASR_LANGUAGE` | 默认由远端转写服务自行识别；旧配置显式指定语言时仍把该提示交给远端服务 |
 | `BREEZE_API_KEY` | 默认 Breeze Blue 云端朗读专用密钥。使用 Harness 凭据或同名宿主环境变量 |
 | `JINGSHEN_TTS_PROTOCOL=breezeblue` | 显式选择默认的 Breeze Blue 云端服务 |
 | `JINGSHEN_TTS_BASE_URL`、`JINGSHEN_TTS_MODEL`、`JINGSHEN_TTS_VOICE`、`JINGSHEN_TTS_API_KEY` | 显式选择 `/audio/speech` 服务、模型、声音与该服务的密钥。兼容服务的响应为 24 kHz 单声道有符号 16 位小端 PCM |
@@ -92,7 +98,7 @@ JINGSHEN_TTS_PROTOCOL=audiocpp \
 
 ## 共享视觉
 
-点击通讯窗或通话右上角的摄像头图标打开“视觉”，可选择摄像头、共享屏幕或浏览器标签页。浏览器持续采集视频，独立 Worker 使用随包的 EfficientDet-Lite0，目标间隔约 0.85 秒；处理不过来时丢弃过期帧。精神可以读到时间、物体标签、位置、置信度和最近的变化。捕获期间可继续说话、打字或工作。现场帧率受硬件、浏览器调度、窗口是否可见和输入源影响。[MediaPipe Web 视频检测](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector/web_js) · [模型卡](https://www.kaggle.com/models/tensorflow/efficientdet/tflite/lite0-detection-metadata/1)
+点击主会话右上角的电话，再点击通话界面的摄像头图标打开“视觉”，可选择摄像头、共享屏幕或浏览器标签页。浏览器持续采集视频，独立 Worker 使用随包的 EfficientDet-Lite0，目标间隔约 0.85 秒；处理不过来时丢弃过期帧。精神可以读到时间、物体标签、位置、置信度和最近的变化。捕获期间可继续说话、打字或工作。现场帧率受硬件、浏览器调度、窗口是否可见和输入源影响。[MediaPipe Web 视频检测](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector/web_js) · [模型卡](https://www.kaggle.com/models/tensorflow/efficientdet/tflite/lite0-detection-metadata/1)
 
 默认只有提取出的识别结果抵达宿主。点击“发送当前画面”才将该帧作为图片写入主会话，交给支持图片输入的已选模型。要结束采集，点击“停止视觉”或使用浏览器停止共享。设备断开、会话暂停或窗口关闭也会释放相应资源。识别器覆盖其训练类别；读屏、文字、剧情或任意场景的深入理解取决于更具体的输入和模型。
 
@@ -105,7 +111,7 @@ JINGSHEN_TTS_PROTOCOL=audiocpp \
 如要控制一个已登录网站的视频播放器，可以安装源包内的可选 Chromium 扩展。
 
 1. 打开 `chrome://extensions`，启用开发者模式，点击“加载已解压的扩展程序”，选择 `media/chromium-video`。在浏览器中用自己的账户打开目标视频页。
-2. 先在本地 Harness 页点击该扩展图标，显示“主”；再在目标 HTTPS 视频页点击，显示“✓”。回到精神通讯窗，选择“共享正在用的浏览器标签页”，在浏览器选择器中选刚授权的标签页。
+2. 先在本地 Harness 页点击该扩展图标，显示“主”；再在目标 HTTPS 视频页点击，显示“✓”。回到精神的通话界面，在“视觉”里选择“共享正在用的浏览器标签页”，在浏览器选择器中选刚授权的标签页。
 3. 精神可以使用 `jingshen_watch` 对该页可见的 HTML 视频执行播放、暂停和查询。扩展仅配对当前文档和实际被捕获的标签页。再次点击图标可以解除授权。更换页面需要重新选择。由浏览器或网站要求的登录、验证码和首次播放手势由本人完成。
 
 工作画幅里的鱼会随获准视频的播放状态改变姿态。[实播截图](../media/screenshots/watching.png)

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Upgrade the distributed 0.4.3 package through the official CLI and continue its conversation in Chromium. */
+/** Upgrade a published package through the official CLI and continue its conversation in Chromium. */
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
@@ -19,8 +19,17 @@ const binary = join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
 const json = file => JSON.parse(readFileSync(file, 'utf8'))
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex')
 assert.equal(json(join(runtime, 'node_modules/@deepseek-ai/dsh/package.json')).version, '0.2.2-rc.5')
-assert.equal(sha256(oldArchive), 'd4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b',
-  'The source archive matches the public 0.4.3 release record')
+const upgradePaths = {
+  d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b: {
+    oldVersion: '0.4.3', targetVersion: '0.4.5', oldPreset: 'dsh-spirit', intentTool: 'spirit_intent',
+  },
+  '2467a76eab70992a3602702bdd278ff166c2a8f1ca92ef096ae638c3cd44e864': {
+    oldVersion: '0.4.5', targetVersion: '0.4.6', oldPreset: 'dsh-jingshen', intentTool: 'jingshen_intent',
+  },
+}
+const sourceHash = sha256(oldArchive)
+assert(Object.hasOwn(upgradePaths, sourceHash), 'The source archive matches a supported public release')
+const { oldVersion, targetVersion, oldPreset, intentTool } = upgradePaths[sourceHash]
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.SPIRIT_VOICE_SMOKE_PLAYWRIGHT || 'playwright')
 const scratch = mkdtempSync(join(tmpdir(), 'spirit-package-upgrade-'))
@@ -32,10 +41,20 @@ cpSync(dirname(fileURLToPath(import.meta.url)), fixture, { recursive: true })
 const env = { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', SPIRIT_TEST_RUNTIME: runtime,
   SPIRIT_TEST_TOKEN: token, SPIRIT_TEST_ADDRESS_FILE: addressFile }
 const run = promisify(execFile)
-const cli = async (...args) => (await run(process.execPath, [binary, ...args], { cwd: scratch, env, timeout: 60_000 })).stdout
+async function cli(...args) {
+  try {
+    return (await run(process.execPath, [binary, ...args], { cwd: scratch, env, timeout: 60_000 })).stdout
+  } catch (error) {
+    writeFileSync(join(scratch, 'cli-failure.log'), [error.stdout, error.stderr].filter(Boolean).join('\n'))
+    throw error
+  }
+}
 const plugin = (...args) => cli('plugin', '--profile', 'spirit-upgrade', ...args)
 let child, browser, origin, entry, bootNumber = 0, page
-const pageErrors = [], evidence = { harness: '0.2.2-rc.5', checks: [] }
+const pageErrors = [], evidence = { harness: '0.2.2-rc.5', archives: [
+  { version: oldVersion, sha256: sourceHash },
+  { version: targetVersion, sha256: sha256(targetArchive) },
+], checks: [] }
 
 async function poll(check, description) {
   const until = Date.now() + 35_000
@@ -119,15 +138,16 @@ async function send(page, text) {
     return reply && { chat, owner, reply }
   }, 'the owner message and mediated reply')
 }
+async function showOwnerMessage(page, text) {
+  const message = page.locator('.jingshen-window').getByText(text, { exact: true })
+  await message.waitFor()
+  assert.equal(await message.count(), 1)
+}
 async function installedVersion() {
   const [result] = JSON.parse(await plugin('list', '--depth', '0', '--json'))
   assert.deepEqual(Object.keys(result.dependencies), ['dsh-jingshen'])
   return result.dependencies['dsh-jingshen'].version
 }
-const checkpoints = [
-  ['0.4.3', oldArchive],
-  ['0.4.5', targetArchive],
-]
 try {
   await cli('--profile', 'spirit-upgrade', '--from-default-profile', 'web', '--dump-config')
   writeFileSync(join(profile, 'cordis.patch.yml'), [
@@ -137,55 +157,65 @@ try {
     '- insert:', '    - id: spirit-runtime-fixture', `      name: ${JSON.stringify(join(fixture, 'runtime-smoke.mjs'))}`, '',
   ].join('\n'))
   await plugin('add', oldArchive)
-  assert.equal(await installedVersion(), checkpoints[0][0])
+  assert.equal(await installedVersion(), oldVersion)
   await boot()
   browser = await chromium.launch({ executablePath: process.env.SPIRIT_CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true })
   evidence.browser = browser.version()
   page = await openConversation()
   const old = await send(page, '请保留这次对话的原始记录。')
-  const before = await request('/permissions', { mode: 'full' })
+  const full = await request('/permissions', { mode: 'full' })
+  assert.equal(full.permissions.mode, 'full')
+  assert.equal(full.permissions.status, 'applied')
   const nativeBefore = await inspect(old.chat.mainId)
-  assert.equal(nativeBefore.preset, 'dsh-spirit')
+  assert.equal(nativeBefore.preset, oldPreset)
   const workspace = await fixtureRequest('/project-workspace', {})
-  const project = await fixtureRequest('/native-create', { workspaceId: workspace.id, agentPreset: 'dsh-spirit' })
-  assert.equal(project.agentPreset, 'dsh-spirit')
+  const project = await fixtureRequest('/native-create', { workspaceId: workspace.id, agentPreset: oldPreset })
+  assert.equal(project.agentPreset, oldPreset)
   const statement = '升级后保留这个尚未完成的意向。'
-  await fixtureRequest('/turn', { sessionId: project.sessionId, script: { id: randomUUID(), calls: [{
-    name: 'spirit_intent', args: { statement, reason: '种下一个待处理的持久意向。', state: 'waiting' },
+  const projectBefore = await fixtureRequest('/turn', { sessionId: project.sessionId, script: { id: randomUUID(), calls: [{
+    name: intentTool, args: { statement, reason: '种下一个待处理的持久意向。', state: 'waiting' },
   }] } })
   const remembered = (await request('/state')).intentions.find(item => item.statement === statement)
   assert.equal(remembered?.state, 'waiting')
+  const before = await request('/control', { action: 'pause' })
+  assert.equal(before.autonomy.state, 'paused')
+  assert.equal(before.permissions.mode, 'full')
   await page.close()
   await stop()
-  evidence.checks.push('0.4.3 installed by dsh and produced real owner and assistant turns in Chromium')
+  evidence.checks.push(`${oldVersion} installed by dsh and produced native owner and assistant turns in Chromium using the deterministic model fixture`)
 
   await plugin('remove', 'dsh-jingshen')
   await plugin('add', targetArchive)
-  assert.equal(await installedVersion(), checkpoints[1][0])
+  assert.equal(await installedVersion(), targetVersion)
   await boot()
   page = await openConversation()
   const restored = await request('/chat?after=0&limit=100')
   assert.equal(restored.mainId, old.chat.mainId)
   assert.deepEqual(restored.messages, old.chat.messages)
-  const visibleOwner = page.locator('.jingshen-window').getByText(old.owner.text, { exact: true })
-  await visibleOwner.waitFor()
-  assert.equal(await visibleOwner.count(), 1)
+  await showOwnerMessage(page, old.owner.text)
   const after = await request('/state')
   assert.deepEqual(after.permissions, before.permissions)
+  assert.deepEqual(after.autonomy, before.autonomy)
   assert.deepEqual(after.intentions.find(item => item.id === remembered.id), remembered)
   const nativeAfter = await inspect(restored.mainId)
   assert.equal(nativeAfter.preset, 'dsh-jingshen')
   assert.equal(nativeAfter.header.cwd, nativeBefore.header.cwd)
   const migratedProject = await inspect(project.sessionId)
   assert.equal(migratedProject.preset, 'dsh-jingshen')
+  assert.equal(migratedProject.header.cwd, projectBefore.header.cwd)
+  assert.deepEqual(migratedProject.events.slice(0, projectBefore.events.length), projectBefore.events)
   assert((await fixtureRequest('/workspaces')).find(item => item.id === workspace.id).sessionIds.includes(project.sessionId))
   const { presets } = await fixtureRequest('/presets')
   assert.deepEqual(presets.filter(item => /^(dsh-(personal-)?spirit|dsh-jingshen)$/.test(item.id)).map(item => item.id), ['dsh-jingshen'])
-  evidence.checks.push('Same profile retains chat, permissions, an unfinished intention and project membership, with one installed package and one selectable new preset')
+  evidence.checks.push('Same profile retains chat, permissions, paused autonomy, an unfinished intention and project history and membership, with one installed package and one selectable Spirit preset')
 
+  const resumed = await request('/control', { action: 'resume' })
+  assert.equal(resumed.autonomy.state, 'running')
+  assert.equal(resumed.permissions.mode, 'full')
   const continued = await send(page, '现在请继续这段对话。')
   assert.equal(continued.chat.mainId, restored.mainId)
   assert.deepEqual(continued.chat.messages.slice(0, restored.messages.length), restored.messages)
+  assert.equal(continued.chat.messages.length, restored.messages.length + 2)
   assert(continued.owner.cursor > restored.cursor)
   assert.equal(continued.reply.source.sessionId, restored.mainId)
   await page.getByRole('button', { name: '缩小窗口' }).click()
@@ -201,13 +231,27 @@ try {
   await page.close()
   await stop()
   await boot()
+  page = await openConversation()
+  await showOwnerMessage(page, old.owner.text)
+  await showOwnerMessage(page, continued.owner.text)
   const restarted = await request('/chat?after=0&limit=100')
   assert.equal(restarted.mainId, restored.mainId)
   assert.deepEqual(restarted.messages, continued.chat.messages)
   assert.equal((await inspect(restarted.mainId)).preset, 'dsh-jingshen')
+  const restartedState = await request('/state')
+  assert.deepEqual(restartedState.permissions, resumed.permissions)
+  assert.deepEqual(restartedState.autonomy, resumed.autonomy)
+  assert.deepEqual(restartedState.intentions.find(item => item.id === remembered.id), remembered)
+  const restartedProject = await inspect(project.sessionId)
+  assert.equal(restartedProject.preset, 'dsh-jingshen')
+  // Harness may append lifecycle events as it resolves a stored session after restart.
+  assert.deepEqual(restartedProject.events.slice(0, migratedProject.events.length), migratedProject.events)
+  assert((await fixtureRequest('/workspaces')).find(item => item.id === workspace.id).sessionIds.includes(project.sessionId))
+  assert.equal(await installedVersion(), targetVersion)
   assert.deepEqual(pageErrors, [])
-  evidence.checks.push('The upgraded browser continues the same history once, and it survives restart')
-  evidence.archives = checkpoints.map(([version, file]) => ({ version, sha256: sha256(file) }))
+  await page.close()
+  await stop()
+  evidence.checks.push('The upgraded browser continues the same history once, and chat, permissions, resumed autonomy, unfinished intention, and project history and membership survive restart')
   evidence.passed = true
 } catch (error) {
   evidence.error = error.stack ?? String(error)

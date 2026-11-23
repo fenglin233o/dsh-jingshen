@@ -1,9 +1,11 @@
-# 精神 0.4.5
+# 精神 0.4.6
 
-fenglin 的个人 AI 助手，包名 `dsh-jingshen`。适配 DeepSeek Harness `0.2.2-rc.5`，需要 Node.js 24.9 或以上版本。
+点小肥鱼打开主会话，从右上角的电话进入通话。摄像头、屏幕和视频共享都在通话里的视觉按钮中。摄像头独立授权，离开通话界面或挂断后会释放。
 
-- 在主会话右上角点电话图标，在电话界面管理麦克风、视觉和语音选项。默认中文朗读使用 Breeze「大肥鱼（迷糊版）」。
-- 主会话可以在一次本人输入或一次空闲唤醒中，交付当下决定发出的消息，再结合已交付内容决定下一步。每条消息都能追溯到自己的交付记录。
-- 安装后的显示名为“精神”，包名和预设标识统一为 `dsh-jingshen`。使用原来的 Harness profile 和状态目录即可升级。市场分类申请为「AGI 架构探索」，上线进度由社区目录维护。[市场更新申请](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/17989)
+- **开麦与打断。** 开麦后显示“等你开口”。浏览器在本机检测人声，并结合环境底噪和连续响度判断开口。短促的响动不会仅凭音量取消正在生成的回复。开口阈值可以在语音选项中调整。实际朗读时仍可插话、手动打断或关麦。
+- **普通话和英语。** 接通后直接用中文、英文或在同一句里混说。随包模型在本机转写，精神能随对话切换回答的语言。通话中能核对刚听到的文字和精神实际交付的回复字幕。识别为空或含未知占位符时，电话提示重说。已显式配置的转写服务继续按原选择使用。
+- **安装和升级。** 适配 DeepSeek Harness 0.2.2-rc.5，要求 Node.js 24.9+。先备份并沿用原 profile、状态目录和 Harness 会话数据，停止原进程，移除旧插件后安装下方标准包。默认 Breeze 音色为「大肥鱼（迷糊版）」，可选本机 PrimeTTS 资产另附。
 
-下载标准安装包后，使用原来的 profile 安装。可选的本机 PrimeTTS 声线资产单独提供。[安装与升级](https://github.com/fenglin233o/dsh-jingshen/blob/v0.4.5/README.md) · [验收范围](https://github.com/fenglin233o/dsh-jingshen/blob/v0.4.5/docs/verification.json)
+本机识别用 420 段公开真人录音作了评估。两组普通话样本的字错率从上一版的 8.40% 和 11.65% 降至 4.51% 和 4.77%。清晰英语朗读的词错率为 2.37%，两组英语电话录音为 13.42% 和 50.20%。70 段自然中英混说合计错误率为 26.06%，按每个汉字和每个英文单词各算一项。
+
+[安装与升级](https://github.com/fenglin233o/dsh-jingshen/blob/v0.4.6/README.md) · [验收范围](https://github.com/fenglin233o/dsh-jingshen/blob/v0.4.6/docs/verification.json) · [中英语音识别评估](https://github.com/fenglin233o/dsh-jingshen/blob/v0.4.6/docs/asr-evaluation-0.4.6.json)

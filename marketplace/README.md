@@ -1,6 +1,6 @@
 # 精神：公开分发与市场收录
 
-本次发行包为 `dsh-jingshen@0.4.5`，唯一目标宿主为 DeepSeek Harness `0.2.2-rc.5`，需要 Node.js 24.9+。标准包保留本机普通话识别。默认通话朗读使用 Breeze 云端的「大肥鱼（迷糊版）」，由用户在宿主配置专用密钥。本机 PrimeTTS 模型与 WASM 可通过同版本的独立资产包安装。安装与验收见 [README](../README.md) 和 [发行包复核](RELEASE-VALIDATION.md)。下文的公开发行历史和市场调研记录于 2026-11-15，对应已经发行的 0.2.0。
+本次发行包为 `dsh-jingshen@0.4.6`，唯一目标宿主为 DeepSeek Harness `0.2.2-rc.5`，需要 Node.js 24.9+。标准包支持普通话、英语及句内中英混说的自动本机识别。默认通话朗读使用 Breeze 云端的「大肥鱼（迷糊版）」，由用户在宿主配置专用密钥。本机 PrimeTTS 模型与 WASM 可通过同版本的独立资产包安装。安装与验收见 [README](../README.md) 和 [发行包复核](RELEASE-VALIDATION.md)。下文的公开发行历史和市场调研记录于 2026-11-15，对应已经发行的 0.2.0。
 
 ## 本次选定的市场
 
@@ -12,13 +12,13 @@
 
 ```sh
 # 固定本次发布；使用自己的 profile 名称。
-dsh plugin --profile jingshen add "github:fenglin233o/dsh-jingshen#v0.4.5"
+dsh plugin --profile jingshen add "github:fenglin233o/dsh-jingshen#v0.4.6"
 
 # 与本次市场条目相同，跟随默认分支 main。
 dsh plugin --profile jingshen add github:fenglin233o/dsh-jingshen
 ```
 
-社区目录已于 2026-11-17 合并「精神」的收录条目。目录更新稿将其归入 AGI 架构探索（`agi`），并保留维护者的双语 HTTP 安全说明。市场实际分类以社区目录默认分支为准。[0.4.5 分类与名称更新](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/17989) · [原收录 PR](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15618) · [社区目录条目](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/data/plugins/fenglin233o__dsh-jingshen.yml)
+社区目录已于 2026-11-17 合并「精神」的收录条目。目录已将其归入 AGI 架构探索（`agi`），并保留维护者的双语 HTTP 安全说明。市场实际分类以社区目录默认分支为准。[0.4.5 分类与名称更新](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/17989) · [原收录 PR](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15618) · [社区目录条目](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/data/plugins/fenglin233o__dsh-jingshen.yml)
 
 ## 已核实的发布路径
 

@@ -1,6 +1,6 @@
 # 实现与验证记录
 
-本包为 `dsh-jingshen` 0.4.5，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证范围为 Linux 本地 Web。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
+本包为 `dsh-jingshen` 0.4.6，唯一目标宿主为 DeepSeek Harness **0.2.2-rc.5**。当前验证范围为 Linux 本地 Web。0.2.0 在 rc.3 上的记录作为升级基线保留在 [0.2.0 验证档案](https://github.com/fenglin233o/dsh-jingshen/blob/v0.2.0/docs/verification.json)。
 
 ## SuperAgent 基底与改造范围
 
@@ -23,7 +23,7 @@
 | `client.tsx`、`spirit-ui.tsx`、`fish.tsx` | 工作画幅入口、通讯窗、通话中的小肥鱼和原生聊天来源提示 |
 | `voice-*.ts(x)`、`vision*.ts(x)` | 同一主会话中的可打断语音、连续本机视觉和本人明确授权的播放控制 |
 | `breeze-voice.ts`、`voice-providers.ts` | 宿主解析专用 Breeze 凭据，向官方流式接口请求默认声线，保留显式选择的其他提供方 |
-| `local-speech.ts`、`scripts/local-speech/` | 在宿主 CPU 上按需加载标准包的中文识别模型和可选资产包的 PrimeTTS 模型，分别调度、取消和回收语音进程 |
+| `local-speech.ts`、`scripts/local-speech/` | 在宿主 CPU 上按需加载标准包的中英文混合识别模型和可选资产包的 PrimeTTS 模型，分别调度、取消和回收语音进程 |
 
 保留上游任务引擎的机械可靠性，不把其状态机解释成精神发展的阶段。模型可直接工作、交谈、记忆和反思；结构化形态、检验与修订是可选的表达工具，不是每次完成工作必须通过的仪式。
 
@@ -39,7 +39,7 @@
 
 **自身改造。** 验证通过不等于文件已应用，文件已应用不等于运行版本已加载，版本已加载也不等于行为改善。候选和源目录摘要、检查点、检查命令实际退出结果、应用日志与激活回执分别保存。独立启动器只响应明确请求，并在关闭旧进程前、关闭后及新插件就绪时核对来源。源码操作与激活共用锁；启动失败不无限重启。每次候选保存独立恢复脚本，可在插件无法加载时使用。
 
-**通话数据。** 浏览器通过同源宿主接口接入当前通话。只有该通话接收到的已交付正文可以触发朗读。默认合成请求向固定的 Breeze HTTPS 地址发送正文、模型、语言和可选的演绎提示，接收单声道 24 kHz、16 位 PCM。同一次通话中的同一条消息只会发起一次朗读，1,000 个 Unicode 码点以内的正文整体提交，更长的回复依次请求各段。专用凭据输入框通过 Harness 原生凭据服务保存 `BREEZE_API_KEY`。合成时由宿主解析该凭据，也支持同名启动环境变量。通话接口向浏览器返回配置状态、通话事件和音频，密钥不经通话接口返回。打断或挂断会取消播放和读取。Breeze 的生成历史与账户结算按其服务规则处理。标准包保留本机 Zipformer 识别，PrimeTTS 权重及其 WASM 运行时随可选资产包发布。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
+**通话数据。** 浏览器通过同源宿主接口接入当前通话。只有该通话接收到的已交付正文可以触发朗读。默认合成请求向固定的 Breeze HTTPS 地址发送正文、模型、语言和可选的演绎提示，接收单声道 24 kHz、16 位 PCM。同一次通话中的同一条消息只会发起一次朗读，1,000 个 Unicode 码点以内的正文整体提交，更长的回复依次请求各段。专用凭据输入框通过 Harness 原生凭据服务保存 `BREEZE_API_KEY`。合成时由宿主解析该凭据，也支持同名启动环境变量。通话接口向浏览器返回配置状态、通话事件和音频，密钥不经通话接口返回。打断或挂断会取消播放和读取。Breeze 的生成历史与账户结算按其服务规则处理。标准包提供本机普通话和英语识别，PrimeTTS 权重及其 WASM 运行时随可选资产包发布。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
 
 **运行边界。** 原生文件、命令、网络工具继续执行宿主自己的检查；完全访问不会创造系统管理员或其他账户权限。应用层状态与记录也不能防范拥有同一文件写权限的主体恶意篡改。源码检查点只支持普通文件，不包含依赖目录和 Git 数据，应用是逐文件原子写入，不能当作整个目录的原子事务。恢复时不会自动覆盖后来出现的冲突改动，也不会按一个可能复用的 PID 擅自接管遗留锁。
 
@@ -65,7 +65,7 @@ node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite 
 
 ## 验证结果
 
-0.4.5 的构建、升级、电话与自主表达覆盖范围见[本版验收记录](verification.json)。
+0.4.6 的语音、视觉和升级覆盖见[本版验收记录](verification.json)。0.4.5 的自主表达和跨会话交付见[上版验收记录](verification-0.4.5.json)。
 
 0.4.3 的 Breeze 接线使用受控的请求与音频流测试。测试范围包括凭据、发言投递、HTTP 错误和打断。另用发行版合成适配器和真实 Breeze API 完成 7 次中文合成，收到首个音频块耗时 0.354 至 0.921 秒。浏览器播放和打断在真实 rc.5 中用受控音频流验证。各版本的归档以记录内的版本标识为准。[当前验证记录](verification.json) · [发行包复核](../marketplace/RELEASE-VALIDATION.md) · [0.4.2 本机语音验证记录](verification-0.4.2.json)
 

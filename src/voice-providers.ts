@@ -1,20 +1,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { BREEZE_MODEL, BREEZE_VOICE, breezeKey, streamBreeze } from './breeze-voice.ts'
-import { BUNDLED_VOICE_MODEL, PLAY_RATE, type VoiceAvailability, type VoiceMessage } from './voice-protocol.ts'
+import { BUNDLED_VOICE_MODEL, PLAY_RATE, speechLanguage, type SpeechLanguage, type VoiceAvailability, type VoiceMessage } from './voice-protocol.ts'
 import { LocalSpeech } from './local-speech.ts'
 
 interface SpeechRegistry {
   snapshot(): {
     selection: { providerId: string; language: string }
-    providers: readonly { id: string; name: string; location: 'host-local' | 'cloud'; preparation: { phase: string } }[]
+    providers: readonly { id: string; name: string; location: 'host-local' | 'cloud'; languages: readonly string[]; preparation: { phase: string } }[]
   }
-  resolve(input: { audio: Uint8Array; providerId: string }): unknown
+  resolve(input: { audio: Uint8Array; providerId: string; language?: string }): unknown
   transcribe(input: unknown, signal: AbortSignal): Promise<{ text: string }>
 }
 type Endpoint = { url: string; key?: string; location: 'host-local' | 'cloud' }
 type ListedModel = { id?: string; family?: string; task?: string; mode?: string }
 type Recognition = { info: NonNullable<VoiceAvailability['input']>; transcribe(wav: Uint8Array<ArrayBuffer>, signal: AbortSignal): Promise<string> }
-type Synthesis = { info: NonNullable<VoiceAvailability['output']>; stream(message: VoiceMessage, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> }
+type Synthesis = { info: NonNullable<VoiceAvailability['output']>; stream(message: VoiceMessage, signal: AbortSignal, language?: SpeechLanguage): Promise<ReadableStream<Uint8Array>> }
 export interface VoiceProviders {
   input: Recognition | null
   output: Synthesis | null
@@ -28,22 +28,28 @@ const audioCppUrl = 'http://127.0.0.1:8080/v1'
 const localhost = new Set(['localhost', '127.0.0.1', '[::1]'])
 const pcmTypes = ['audio/pcm', 'audio/l16', 'audio/raw', 'application/octet-stream']
 const tone = {
-  gentle: { speed: 0.99, instructions: '像在和身边的朋友说悄悄话，温柔里带一点好奇，问句末尾轻轻扬起。' },
-  bright: { speed: 1.06, instructions: '发现有趣的事时笑意透出来，重音灵巧，有轻有重。' },
-  grounded: { speed: 0.95, instructions: '认真解释时稍慢，仍用同一个清亮的小嗓音，停顿从容。' },
+  gentle: { speed: 0.99, zh: '像在和身边的朋友说悄悄话，温柔里带一点好奇，问句末尾轻轻扬起。', en: 'Speak softly, with warmth and a little curiosity.' },
+  bright: { speed: 1.06, zh: '发现有趣的事时笑意透出来，重音灵巧，有轻有重。', en: 'Let a smile come through, with light and expressive emphasis.' },
+  grounded: { speed: 0.95, zh: '认真解释时稍慢，仍用同一个清亮的小嗓音，停顿从容。', en: 'Slow down a little and pause naturally when explaining something.' },
 } as const
 const audioCppDirections = {
-  neutral: '',
-  warm: '语气温暖舒展。',
-  gentle: '语气柔和，停顿自然。',
-  serious: '语气认真，重音清楚。',
-  playful: '音调轻快，重音灵巧。',
+  zh: { neutral: '', warm: '语气温暖舒展。', gentle: '语气柔和，停顿自然。', serious: '语气认真，重音清楚。', playful: '音调轻快，重音灵巧。' },
+  en: { neutral: '', warm: ' Use a warm, relaxed tone.', gentle: ' Speak softly and pause naturally.',
+    serious: ' Speak seriously with clear emphasis.', playful: ' Use a light, playful tone.' },
+} as const
+const audioCppScripts = {
+  zh: '沿用参考声线，自然朗读原文。',
+  en: 'Read the original English text naturally in the reference voice.',
+  mixed: 'Read the Mandarin and English phrases naturally in the reference voice, keeping their original wording and order.',
 } as const
 
-export function speechStyle(message: VoiceMessage): { speed: number; instructions: string } {
+export function speechStyle(message: VoiceMessage, language = speechLanguage(message.text)): { speed: number; instructions: string } {
   const style = message.tone === 'serious' ? tone.grounded
     : message.tone === 'playful' || !message.tone && /[！!]/u.test(message.text) ? tone.bright : tone.gentle
-  return { speed: style.speed, instructions: `用自然的普通话演绎小肥鱼，一位聪慧、带稚气的动画女孩。嗓音清透偏高，发音轻巧，像近距离对话。${style.instructions} 保持原文，在意群之间换气。` }
+  const instructions = language === 'zh'
+    ? `用自然的普通话演绎小肥鱼，一位聪慧、带稚气的动画女孩。嗓音清透偏高，发音轻巧，像近距离对话。${style.zh} 保持原文，在意群之间换气。`
+    : `Speak naturally in ${language === 'mixed' ? 'both Mandarin and English' : 'English'} as Xiaoyu, a bright animated girl with a clear, light voice. ${style.en} Keep the original wording and pause between phrases.`
+  return { speed: style.speed, instructions }
 }
 
 function endpoint(base: string, key?: string): Endpoint {
@@ -99,7 +105,7 @@ export class VoiceProviderDiscovery {
           const form = new FormData()
           form.set('file', new Blob([wav], { type: 'audio/wav' }), 'jingshen.wav')
           form.set('model', env.MODEL ?? 'whisper-1')
-          if (env.LANGUAGE !== 'auto') form.set('language', env.LANGUAGE ?? 'zh')
+          if (env.LANGUAGE && env.LANGUAGE !== 'auto') form.set('language', env.LANGUAGE)
           const result = await remoteFetch(target, 'audio/transcriptions', { method: 'POST', body: form },
             AbortSignal.any([signal, AbortSignal.timeout(45_000)]))
           if (!result.ok) { await result.body?.cancel(); throw new Error(`语音转写服务未接受请求（HTTP ${result.status}）`) }
@@ -112,14 +118,16 @@ export class VoiceProviderDiscovery {
     const registry = this.ctx.get('speechToText') as SpeechRegistry | undefined
     const snapshot = registry?.snapshot()
     const current = snapshot?.providers.find(provider => provider.id === snapshot.selection.providerId)
-    if (registry && current?.location === 'host-local' && ['ready', 'standby', 'waking'].includes(current.preparation.phase)) {
+    if (registry && current?.location === 'host-local'
+      && ['auto', 'zh', 'en'].every(hint => current.languages?.includes(hint))
+      && ['ready', 'standby', 'waking'].includes(current.preparation.phase)) {
       return {
         info: { name: current.name, location: current.location },
-        transcribe: async (audio, signal) => (await registry.transcribe(registry.resolve({ audio, providerId: current.id }), signal)).text,
+        transcribe: async (audio, signal) => (await registry.transcribe(registry.resolve({ audio, providerId: current.id, language: 'auto' }), signal)).text,
       }
     }
     return this.bundled.available('asr') ? {
-      info: { name: '随包普通话识别', location: 'host-local' },
+      info: { name: '随包中英语音识别', location: 'host-local' },
       transcribe: (wav, signal) => this.bundled.transcribe(wav, signal),
     } : null
   }
@@ -156,9 +164,9 @@ export class VoiceProviderDiscovery {
     if (!confirmed) return null
     return {
       info: { name: `BreezeTTS 2 · ${voice}`, model, voice, location: confirmed.location },
-      stream: (message, signal) => streamPcm(confirmed, {
+      stream: (message, signal, language = speechLanguage(message.text)) => streamPcm(confirmed, {
         model, input: message.text, voice, response_format: 'pcm', stream_format: 'audio',
-        options: { instruct: `沿用参考声线，自然朗读原文。${audioCppDirections[message.tone ?? 'neutral']}` },
+        options: { instruct: audioCppScripts[language] + audioCppDirections[language === 'zh' ? 'zh' : 'en'][message.tone ?? 'neutral'] },
       }, signal, ['application/octet-stream']),
     }
   }
@@ -171,13 +179,13 @@ export class VoiceProviderDiscovery {
       input,
       output: {
         info: { name: '大肥鱼·迷糊版', provider: 'breezeblue', model: BREEZE_MODEL, voice: BREEZE_VOICE, location: 'cloud' },
-        stream: async (message, signal) => {
+        stream: async (message, signal, language) => {
           const caller = AbortSignal.any([signal, this.lifecycle.signal])
           caller.throwIfAborted()
           const key = await breezeKey(this.ctx, this.env)
           caller.throwIfAborted()
           if (!key) throw new Error('请先设置 BreezeBlue API Key')
-          return streamBreeze(key, message, caller)
+          return streamBreeze(key, message, caller, language)
         },
       },
     }
@@ -219,8 +227,8 @@ export class VoiceProviderDiscovery {
       input,
       output: {
         info: { name, model, voice, location: target.location },
-        stream: (message, signal) => {
-          const style = speechStyle(message)
+        stream: (message, signal, language) => {
+          const style = speechStyle(message, language)
           return streamPcm(target, {
             model, input: message.text, voice, response_format: 'pcm',
             ...(expressive ? { instructions: style.instructions } : { speed: style.speed }),

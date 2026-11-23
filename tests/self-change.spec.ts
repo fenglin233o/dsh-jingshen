@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -97,6 +97,44 @@ describe('real, recoverable changes to source and build artifacts', () => {
     expect(child.input.evidence).toEqual([])
     expect(child.input.criterionChanges[0]!.previous).toContain('typechecking')
     expect(f.book.read(f.change.id).input.criteria).toEqual(reason.criteria)
+  })
+
+  it('keeps bundled model files in a larger plugin checkpoint through verification, apply and rollback', async () => {
+    const f = fixture(true)
+    repair(f)
+    await f.book.verify(f.change.id, [...checks, { target: 'harness', command: 'node --check host.cjs' }], runNode)
+    await f.book.apply(f.change.id, authorize)
+
+    const options = { stateDir: f.stateDir, targets: f.targets, defaultMaxBytesByTarget: { plugin: 8_192 } }
+    const book = new SelfChangeBook(options)
+    expect((await book.rollback(f.change.id, authorize)).state).toBe('rolled-back')
+
+    const modelDirectory = 'media/voice/local/asr'
+    mkdirSync(join(f.root, modelDirectory), { recursive: true })
+    const paths = ['encoder.int8.onnx', 'weights-01.data'].map(file => `${modelDirectory}/${file}`)
+    const original = Buffer.alloc(2_048, 42)
+    for (const path of paths) writeFileSync(join(f.root, path), original)
+
+    const change = book.begin(reason)
+    const target = change.targets[0]!
+    for (const path of paths) {
+      expect(readFileSync(join(target.checkpointDirectory, path))).toEqual(original)
+      expect(readFileSync(join(target.candidateDirectory, path))).toEqual(original)
+    }
+    writeFileSync(join(target.candidateDirectory, 'app.cjs'), 'module.exports = value => value * 2\n')
+    expect((await book.verify(change.id, checks, runNode)).state).toBe('verified')
+    expect((await book.apply(change.id, authorize)).state).toBe('applied')
+    expect((await book.rollback(change.id, authorize)).state).toBe('rolled-back')
+    for (const path of paths) expect(readFileSync(join(f.root, path))).toEqual(original)
+
+    expect(() => new SelfChangeBook({ ...options, maxBytes: 1_024 }).begin(reason)).toThrow(/file\/byte limits/)
+    expect(() => new SelfChangeBook({ ...options, defaultMaxBytesByTarget: { plugin: 1_024 } }).begin(reason)).toThrow(/file\/byte limits/)
+    expect(() => new SelfChangeBook({ ...options, maxFiles: 1 }).begin(reason)).toThrow(/file\/byte limits/)
+
+    const harnessFile = join(f.host, 'oversized')
+    writeFileSync(harnessFile, '')
+    truncateSync(harnessFile, 128 * 1024 * 1024 + 1)
+    expect(() => book.begin({ ...reason, targets: ['harness'] })).toThrow(/file\/byte limits/)
   })
 
   it('refuses a candidate edited after verification, then permits real re-verification', async () => {

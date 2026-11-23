@@ -116,8 +116,10 @@ export async function apply(ctx) {
   const mediaFixture = process.env.SPIRIT_TEST_BROWSER_MEDIA === '1' && [
     [/今天.*先做什么/u, '我在。我们先把手上的资料放在一起，挑一件今天能推进的事。'],
     [/整理.*笔记/u, '好呀。先写下今天最重要的一件事，再把笔记按主题归在一起。我可以帮你把下一步列清楚。'],
-    [/听得见.*吗/u, '听得见，我在这里。你可以慢慢说。我们先把刚才想到的事情记下来，再一起看看哪一件最想动手。说到一半想换话题也没关系，等你准备好我再接着听。今天还很长，我们可以留一点时间给临时冒出来的念头，也可以从眼前这一件小事做起。'],
+    [/[听聽]得[见見].*[吗嗎]/u, '听得见，我在这里。你可以慢慢说。我们先把刚才想到的事情记下来，再一起看看哪一件最想动手。说到一半想换话题也没关系，等你准备好我再接着听。今天还很长，我们可以留一点时间给临时冒出来的念头，也可以从眼前这一件小事做起。'],
     [/等一下.*另一件事/u, '好，你说。我先听听这件新的事，再和你想想下一步怎么安排。'],
+    [/wait.*another question/iu, 'Of course. Tell me your other question. I am listening.'],
+    [/[帮幫]我.*check the calendar.*告[诉訴]我[几幾][点點]/iu, '我会 check the calendar，然后告诉你时间。'],
   ]
   const models = ['fixture-one', 'fixture-two'].map(id => ({ provider: PROVIDER, id, name: `Deterministic protocol fixture: ${id}`,
     inputModalities: visionFixture ? ['text', 'image'] : ['text'], context: { contextWindow: 1_000_000 }, defaultMaxTokens: 4096,

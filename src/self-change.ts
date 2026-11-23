@@ -32,6 +32,8 @@ export interface SelfChangeOptions {
   targets: SelfChangeTarget[]
   maxFiles?: number
   maxBytes?: number
+  /** Defaults for selected targets. An explicit maxBytes takes precedence for every target. */
+  defaultMaxBytesByTarget?: Readonly<Record<string, number>>
 }
 export interface SelfChangeCommand {
   id: string; target: string; command: string; cwd: string
@@ -159,6 +161,7 @@ export class SelfChangeBook {
   readonly targets: SelfChangeTarget[]
   readonly maxFiles: number
   readonly maxBytes: number
+  private readonly targetByteDefaults: ReadonlyMap<string, number>
 
   constructor(options: SelfChangeOptions) {
     if (!isAbsolute(options.stateDir)) throw new Error('Self-change stateDir must be absolute')
@@ -167,6 +170,7 @@ export class SelfChangeBook {
     mkdirSync(this.directory, { recursive: true, mode: 0o700 }); checkedRoot(this.directory)
     this.maxFiles = options.maxFiles ?? 20_000
     this.maxBytes = options.maxBytes ?? 128 * 1024 * 1024
+    this.targetByteDefaults = new Map(options.maxBytes === undefined ? Object.entries(options.defaultMaxBytesByTarget ?? {}) : [])
     this.targets = options.targets.map(target => {
       targetId.parse(target.id)
       if (!isAbsolute(target.root)) throw new Error('Source roots must be absolute')
@@ -210,9 +214,10 @@ export class SelfChangeBook {
   private ignored(path: string, exclude: string[]): boolean {
     return path.split('/').some(part => part === '.git' || part === 'node_modules') || exclude.some(item => path === item || path.startsWith(item + '/'))
   }
-  private scan(root: string, exclude: string[]): SelfChangeManifest {
+  private scan(root: string, target: Pick<SelfChangeTarget, 'id' | 'exclude'>): SelfChangeManifest {
     checkedRoot(root)
     const manifest: SelfChangeManifest = Object.create(null)
+    const exclude = target.exclude ?? [], maxBytes = this.targetByteDefaults.get(target.id) ?? this.maxBytes
     let count = 0, size = 0
     const visit = (directory: string, prefix: string) => {
       for (const name of readdirSync(directory).sort()) {
@@ -224,7 +229,7 @@ export class SelfChangeBook {
         if (info.isDirectory()) visit(absolute, path)
         else {
           if (!info.isFile()) throw new Error(`Only regular source files are supported: ${absolute}`)
-          if (++count > this.maxFiles || (size += info.size) > this.maxBytes) throw new Error('Source snapshot exceeds configured file/byte limits')
+          if (++count > this.maxFiles || (size += info.size) > maxBytes) throw new Error('Source snapshot exceeds configured file/byte limits')
           const value = readRegular(absolute)
           if (!value) throw new Error(`Source changed during scan: ${absolute}`)
           manifest[path] = value.file
@@ -253,17 +258,17 @@ export class SelfChangeBook {
     return target
   }
   private candidateDigests(record: SelfChangeRecord): Record<string, string> {
-    return Object.fromEntries(record.targets.map(target => [target.id, digest(this.scan(target.candidateDirectory, target.exclude))]))
+    return Object.fromEntries(record.targets.map(target => [target.id, digest(this.scan(target.candidateDirectory, target))]))
   }
   private checkpointValid(target: SelfChangeSnapshot): void {
-    if (digest(target.baseline) !== target.baselineDigest || digest(this.scan(target.checkpointDirectory, target.exclude)) !== target.baselineDigest) {
+    if (digest(target.baseline) !== target.baselineDigest || digest(this.scan(target.checkpointDirectory, target)) !== target.baselineDigest) {
       throw new Error(`Checkpoint was changed: ${target.id}`)
     }
   }
   private baselineCurrent(record: SelfChangeRecord): void {
     for (const stored of record.targets) {
       const target = this.snapshot(record, stored.id)
-      if (digest(this.scan(target.root, target.exclude)) !== target.baselineDigest) throw new Error(`Live source changed since checkpoint; create a fresh candidate: ${target.id}`)
+      if (digest(this.scan(target.root, target)) !== target.baselineDigest) throw new Error(`Live source changed since checkpoint; create a fresh candidate: ${target.id}`)
     }
   }
 
@@ -285,7 +290,7 @@ export class SelfChangeBook {
       if (!recovery) throw new Error('The installed package is missing scripts/spirit-recover.mjs')
       atomicWrite(record.recoveryScript, recovery.bytes, 0o700)
       for (const target of selected) {
-        const baseline = this.scan(target.root, target.exclude ?? [])
+        const baseline = this.scan(target.root, target)
         const checkpointDirectory = join(directory, 'checkpoint', target.id), candidateDirectory = join(directory, 'candidate', target.id)
         this.copy(target.root, checkpointDirectory, baseline)
         this.copy(checkpointDirectory, candidateDirectory, baseline)
@@ -339,10 +344,10 @@ export class SelfChangeBook {
     for (const target of record.targets) {
       this.snapshot(record, target.id)
       this.checkpointValid(target)
-      const candidate = this.scan(target.candidateDirectory, target.exclude)
+      const candidate = this.scan(target.candidateDirectory, target)
       candidateDigests[target.id] = digest(candidate)
       differences.push(...difference(target.id, target.baseline, candidate))
-      if (digest(this.scan(target.root, target.exclude)) !== target.baselineDigest) liveChanged.push(target.id)
+      if (digest(this.scan(target.root, target)) !== target.baselineDigest) liveChanged.push(target.id)
     }
     return { id, differences, liveChanged, candidateDigests }
   }
@@ -356,7 +361,7 @@ export class SelfChangeBook {
     return { changeId: id, targets: record.targets.map(target => {
       this.snapshot(record, target.id)
       this.checkpointValid(target)
-      const current = digest(this.scan(target.root, target.exclude))
+      const current = digest(this.scan(target.root, target))
       if (current !== record.verified!.digests[target.id]) throw new Error(`Live source changed after apply; verify a fresh candidate before activation: ${target.id}`)
       return { id: target.id, root: target.root, digest: current, required: target.activation }
     }) }
@@ -458,7 +463,7 @@ export class SelfChangeBook {
           entry.state = 'written'; this.save(record)
         }
         // A concurrent external edit is not silently described as a complete applied version.
-        for (const target of record.targets) if (digest(this.scan(target.root, target.exclude)) !== record.verified.digests[target.id]) {
+        for (const target of record.targets) if (digest(this.scan(target.root, target)) !== record.verified.digests[target.id]) {
           throw new Error(`Live source changed during apply: ${target.id}`)
         }
         record.application.completedAt = stamp(); record.state = 'applied'

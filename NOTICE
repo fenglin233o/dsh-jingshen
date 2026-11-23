@@ -1,4 +1,4 @@
-dsh-jingshen 0.4.5 · 精神
+dsh-jingshen 0.4.6 · 精神
 
 This is an independently adapted personal plugin, not an official DeepSeek product.
 It incorporates code from deepseek-ai/dsh-superagent-prototype under the MIT license.
@@ -34,11 +34,9 @@ are in media/voice/local/tts/NOTICE.txt and the accompanying license files.
 The Mandarin frontend bundles pinyin-pro 3.29.5 under its MIT license. See
 scripts/local-speech/pinyin/LICENSE and scripts/local-speech/pinyin/provenance.json.
 
-Default speech recognition uses the Apache-2.0
-sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01 model and
-vocabulary. See media/voice/local/asr/NOTICE and media/voice/local/asr/LICENSE
-for the source, license and checksums. The recognizer uses the Sherpa-ONNX
-native runtime available to DeepSeek Harness 0.2.2-rc.5.
+The bundled recognizer transcribes Mandarin, English, and code-switched
+speech locally using Sherpa-ONNX. Model attribution, licenses, source
+revisions, packaging details and checksums are in media/voice/local/asr/.
 
 ONNX Runtime Web is provided by Microsoft under the MIT license. The optional
 CPU WebAssembly runtime and its loader are accompanied by scripts/local-speech/ort/LICENSE
@@ -52,3 +50,5 @@ The opt-in legacy voice setup downloads the k2-fsa Emilia-trained ZipVoice
 Distill model (CC BY-NC) and the Vocos 24 kHz vocoder separately.
 Model terms: https://huggingface.co/k2-fsa/ZipVoice#4-license
 Vocoder: https://huggingface.co/charactr/vocos-mel-24khz
+
+Browser voice activity detection uses WebRTC libfvad from @echogarden/fvad-wasm 0.2.0. See media/voice/vad/ for attribution, licenses and patent grant.

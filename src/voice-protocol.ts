@@ -6,6 +6,13 @@ export const MAX_UTTERANCE_SECONDS = 25
 export const MAX_WAV_BYTES = 44 + RECORD_RATE * 2 * MAX_UTTERANCE_SECONDS
 
 export type VoiceTone = 'neutral' | 'warm' | 'serious' | 'gentle' | 'playful'
+export type VoiceLanguage = 'zh' | 'en'
+export type SpeechLanguage = VoiceLanguage | 'mixed'
+export function speechLanguage(text: string): SpeechLanguage {
+  const latin = /\p{Script=Latin}/u.test(text)
+  if (/\p{Script=Han}/u.test(text)) return latin ? 'mixed' : 'zh'
+  return latin ? 'en' : 'zh'
+}
 export interface VoiceMessage { id: string; text: string; tone?: VoiceTone }
 export interface VoiceDelivery extends VoiceMessage { sequence: number }
 export interface VoiceAvailability {

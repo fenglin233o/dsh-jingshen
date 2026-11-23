@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MediaIcon } from './media-icons.tsx'
 import { bindCapturedVideo, type CapturedVideoControls } from './vision-tab.ts'
 import { permittedVideoUrl, videoHost } from './vision-url.ts'
@@ -20,13 +20,15 @@ type Capture = {
 }
 type Props = {
   paused?: boolean
-  minimized?: boolean
-  hidden?: boolean
+  inPhone: boolean
+  callInProgress: boolean
   open: boolean
   panelId: string
   onToggle: () => void
   onWatchingChange?: (watching: boolean) => void
 }
+
+const isAuthorizedVideo = (source: Source) => source === 'video' || source === 'video-library'
 
 async function post<T>(route: string, data: unknown, options: { signal?: AbortSignal; keepalive?: boolean } = {}): Promise<T> {
   const response = await fetch(apiPath + route, {
@@ -84,7 +86,7 @@ function clearPlayer(value: Capture, element: HTMLVideoElement): void {
   value.downloadedUrl = undefined
 }
 
-export function VisionControls({ paused = false, minimized = false, hidden, open, panelId, onToggle, onWatchingChange }: Props) {
+export function VisionControls({ paused = false, inPhone, callInProgress, open, panelId, onToggle, onWatchingChange }: Props) {
   const [status, setStatus] = useState('')
   const [source, setSource] = useState<Source>()
   const [watching, setWatching] = useState(false)
@@ -96,15 +98,16 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
   const video = useRef<HTMLVideoElement>(null)
   const capture = useRef<Capture>()
   const generation = useRef(0)
-  const startingCapture = useRef<AbortController>()
+  const startingCapture = useRef<{ source: Source; controller: AbortController }>()
   const pausedRef = useRef(paused)
-  const minimizedRef = useRef(minimized)
+  const inPhoneRef = useRef(inPhone)
+  const wasCalling = useRef(callInProgress)
   pausedRef.current = paused
-  minimizedRef.current = minimized
+  inPhoneRef.current = inPhone
 
-  const end = (keepalive = false) => {
+  const end = useCallback((keepalive = false) => {
     generation.current++
-    startingCapture.current?.abort()
+    startingCapture.current?.controller.abort()
     const value = capture.current
     capture.current = undefined
     if (value) {
@@ -119,7 +122,7 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
       void post('/stop', { token: value.token }, { keepalive }).catch(() => {})
     }
     const element = video.current
-    if (element) {
+    if (value && element) {
       element.pause()
       element.srcObject = null
       element.removeAttribute('src')
@@ -130,22 +133,23 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
     setLabels([])
     setStarting(false)
     setWatching(false)
-  }
+  }, [])
 
   useEffect(() => {
     const leave = () => end(true)
     window.addEventListener('pagehide', leave)
     return () => { window.removeEventListener('pagehide', leave); leave() }
-  }, [])
+  }, [end])
   useEffect(() => {
     if (paused) { end(); setStatus('') }
-  }, [paused])
+  }, [end, paused])
   useEffect(() => {
-    if (!minimized) return
-    const active = capture.current
-    if (active?.source === 'video' || active?.source === 'video-library') return
-    if (active || startingCapture.current) { end(); setStatus('视觉共享已结束。') }
-  }, [minimized])
+    const hungUp = wasCalling.current && !callInProgress
+    wasCalling.current = callInProgress
+    if (inPhone && !hungUp) return
+    const source = capture.current?.source ?? startingCapture.current?.source
+    if (source && !isAuthorizedVideo(source)) { end(); setStatus('视觉共享已结束。') }
+  }, [end, inPhone, callInProgress])
   useEffect(() => { onWatchingChange?.(watching) }, [watching, onWatchingChange])
 
   const fail = (value: Capture, error: unknown) => {
@@ -201,7 +205,7 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
     value.lastMediaTime = mediaTime
     const capturedAt = Date.now(), timestamp = performance.now()
     const width = Math.min(480, element.videoWidth)
-    const observedTime = value.source === 'video' || value.source === 'video-library' ? mediaTime : playerTime
+    const observedTime = isAuthorizedVideo(value.source) ? mediaTime : playerTime
     value.pendingFrame = { capturedAt,
       ...(observedTime !== undefined ? { mediaTime: observedTime, commandId: value.command?.id } : {}) }
     let bitmap: ImageBitmap | undefined
@@ -224,7 +228,7 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
         setCanSend(false)
         setLabels([])
       }
-      const controlsPlayer = value.source === 'video' || value.source === 'video-library' || value.tab
+      const controlsPlayer = isAuthorizedVideo(value.source) || value.tab
       let playerTime: number | undefined
       if (!controlsPlayer && Date.now() - (value.lastPollAt ?? 0) >= 2000) {
         value.lastPollAt = Date.now()
@@ -266,16 +270,17 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
   }
 
   const start = async (requested: Source, media?: { url?: string; objectUrl?: string; allowedHost?: string }) => {
-    if (pausedRef.current || minimizedRef.current || capture.current || startingCapture.current) {
+    if (pausedRef.current || !inPhoneRef.current || capture.current || startingCapture.current) {
       if (media?.objectUrl) URL.revokeObjectURL(media.objectUrl)
       return
     }
     const epoch = ++generation.current
     const controller = new AbortController()
-    startingCapture.current = controller
+    startingCapture.current = { source: requested, controller }
     setStarting(true)
     setStatus('')
     let stream: MediaStream | undefined, value: Capture | undefined, token: string | undefined
+    const canceled = () => generation.current !== epoch || pausedRef.current || (!inPhoneRef.current && !isAuthorizedVideo(requested))
     const stopPendingTracks = () => { for (const track of stream?.getTracks() ?? []) track.stop() }
     controller.signal.addEventListener('abort', stopPendingTracks, { once: true })
     try {
@@ -283,7 +288,7 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
       let tab: CapturedVideoControls | undefined
       if (requested === 'camera') {
         stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 640 }, height: { ideal: 480 } } })
-      } else if (requested !== 'video' && requested !== 'video-library') {
+      } else if (!isAuthorizedVideo(requested)) {
         stream = await navigator.mediaDevices.getDisplayMedia({ audio: false, video: requested === 'video-tab' ? { displaySurface: 'browser' } : true })
         const track = stream.getVideoTracks()[0]
         if (requested === 'video-tab') {
@@ -294,10 +299,10 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
           }
         }
       }
-      if (generation.current !== epoch || pausedRef.current || minimizedRef.current || !video.current) return
+      if (canceled() || !video.current) return
       const element = video.current
       token = (await post<{ token: string }>('/start', { source: selected, allowedHost: media?.allowedHost })).token
-      if (generation.current !== epoch || pausedRef.current || minimizedRef.current) return
+      if (canceled()) return
       const worker = new Worker(apiPath + '/assets/detector.js')
       setStatus('正在加载本机视觉识别。')
       value = { token, source: selected, stream, media: media?.url, objectUrl: media?.objectUrl, allowedHost: media?.allowedHost, worker,
@@ -310,7 +315,7 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
         const result = event.data as { type: 'ready' | 'error' | 'result'; error?: string; detections?: Detection[] }
         if (result.type === 'ready') {
           owned.ready = true
-          setStatus(selected === 'video' || selected === 'tab-video' || selected === 'video-library'
+          setStatus(isAuthorizedVideo(selected) || selected === 'tab-video'
             ? '视频已授权，由精神选择何时播放。' : '本机实时物体识别已开启。')
           return
         }
@@ -350,14 +355,14 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
         stopPendingTracks()
         if (media?.objectUrl) URL.revokeObjectURL(media.objectUrl)
       }
-      if (startingCapture.current === controller) startingCapture.current = undefined
+      if (startingCapture.current?.controller === controller) startingCapture.current = undefined
       if (generation.current === epoch) setStarting(false)
     }
   }
 
   const send = async () => {
     const value = capture.current, element = video.current
-    if (!value || !element || pausedRef.current || element.paused || !value.lastCapturedAt
+    if (!value || !element || !inPhoneRef.current || pausedRef.current || element.paused || !value.lastCapturedAt
       || Date.now() - value.lastCapturedAt > 3900 || element.readyState < 2) return setStatus('暂时没有新画面可发送。')
     const capturedAt = Date.now()
     try {
@@ -378,12 +383,12 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
     }
   }
 
-  return <div className="spirit-vision" hidden={hidden}>
-    <button type="button" className="jingshen-icon" data-capturing={!!source || undefined}
+  return <div className="spirit-vision" hidden={!inPhone}>
+    {inPhone && <button type="button" className="jingshen-icon" data-capturing={!!source || undefined}
       title={source ? '视觉已开启' : '视觉'} aria-label={source ? '视觉已开启' : '视觉'}
-      aria-controls={panelId} aria-expanded={open} onClick={onToggle}><MediaIcon name="camera" /></button>
+      aria-controls={panelId} aria-expanded={open} onClick={onToggle}><MediaIcon name="camera" /></button>}
     <div id={panelId} hidden={!open} className="spirit-vision-controls">
-      {!source && <fieldset disabled={paused || starting}>
+      {inPhone && !source && <fieldset disabled={paused || starting}>
         <legend>本机视觉</legend>
         <p>开启后，浏览器在本机识别物体。精神可以读取识别标签和位置。单独发送画面会把该帧存入主会话，并交给当前模型。</p>
         <button type="button" onClick={() => void start('camera')}>开启摄像头</button>
@@ -406,22 +411,22 @@ export function VisionControls({ paused = false, minimized = false, hidden, open
         }}>授权精神从此域名选片</button>
         <p>网页视频需允许跨域读取，网络短片上限 25 MiB。已登录的网页可共享画面。若要让精神控制网页播放器，先在 Harness 和该网页分别点击已安装的配套扩展图标，再共享该标签页。</p>
       </fieldset>}
-      {source && <div>
+      {inPhone && source && <div>
         <button type="button" onClick={() => { end(); setStatus('视觉共享已结束。') }}>停止视觉</button>
         <button type="button" disabled={!canSend || paused} onClick={() => void send()}>发送当前画面</button>
       </div>}
-      <video ref={video} hidden={!source || (source === 'video' || source === 'video-library') && !watching} muted playsInline aria-label="视觉预览"
+      <video ref={video} hidden={!source || isAuthorizedVideo(source) && !watching} muted playsInline aria-label="视觉预览"
         onEnded={() => { if (capture.current) void playbackEnded(capture.current) }}
         onError={() => {
           const value = capture.current
-          if (value && (value.source === 'video' || value.source === 'video-library') && value.command?.action === 'play') {
+          if (value && isAuthorizedVideo(value.source) && value.command?.action === 'play') {
             if (video.current) clearPlayer(value, video.current)
             setStatus('浏览器无法播放此视频。可选择其他来源，或分享原浏览器标签页。')
             void playbackEnded(value, true)
           }
         }} />
-      {labels.length > 0 && <p>当前识别 {labels.join('、')}</p>}
-      {status && <p role="status">{status}</p>}
+      {inPhone && labels.length > 0 && <p>当前识别 {labels.join('、')}</p>}
+      {inPhone && status && <p role="status">{status}</p>}
     </div>
   </div>
 }

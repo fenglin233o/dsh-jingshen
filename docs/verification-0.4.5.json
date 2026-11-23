@@ -1,0 +1,198 @@
+{
+  "date": "2026-11-23",
+  "package": "dsh-jingshen",
+  "packageVersion": "0.4.5",
+  "author": "fenglin",
+  "harnessVersion": "0.2.2-rc.5",
+  "baseline": {
+    "mainAtCheckout": "f6f015e9ba986f5d094ad779a8c76b37256b2a47",
+    "release": "v0.4.3",
+    "releaseCommit": "c2820dc398a71b0d999ff159506dc8d7147495d4",
+    "record": "verification-0.4.3.json",
+    "recordSha256": "309f62dab0fedc3e243c5dac68cce6be9214bf1147e4f93a4a165edfe3659fd7",
+    "registryTags": {
+      "latest": "0.2.2-rc.5",
+      "next": "0.2.2-rc.5",
+      "alpha": "0.2.3-alpha.2"
+    }
+  },
+  "build": {
+    "platform": "Linux x86_64",
+    "node": "24.22.3",
+    "chromium": "156.0.8078.79",
+    "typecheck": "passed",
+    "testsPassed": 265,
+    "testFiles": 24,
+    "testsFailed": 0,
+    "build": "passed",
+    "serverSha256": "04dc5eca2d4ae7b226c3791fb96e458790afd66aefddf595a0fc8c7bd5292a63",
+    "clientSha256": "2afa5ffbf489cc2506f24748ad6dfa337c94a72383c615b0eafc21113ef23c7a"
+  },
+  "controlledHostRuns": [
+    {
+      "suite": "default",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "the native preset selector offers a single Spirit entry",
+        "full package mounts and native agent executes Spirit tools",
+        "model tool roster exposes continuity tools without owner control setters",
+        "normal Workspace navigation cannot take the private main, while standard and participating project blanks retain their own presets",
+        "native owner-created conversation inherits active work on its first request and can revise it for the whole profile",
+        "declining a real owner request records model authorship and creates no task",
+        "real rc.5 context overflow and native compaction retain the current orientation and do not revive cancelled work",
+        "Team disabled leaves ordinary native spawn operational with isolated context and a child-attributed result",
+        "native fork sees completed root context, mutates the shared Team task board as a named member and returns a child-attributed result",
+        "Team member messages and the live roster preserve native member names and authorship",
+        "native delegation revocation and stop abort work and background jobs without replaying queued work or affecting another preset",
+        "a new native follow-up can continue the member under workspace access without restoring the revoked input",
+        "native create/read/post preserves self attribution and workspace membership",
+        "session-local model and reasoning effort reach native requests",
+        "ask mode awaits and records native rejection before mutation",
+        "pause withdraws a pending native approval before its mutation",
+        "permission changes invalidate an outstanding native approval grant",
+        "full permission uses the selected standing access without extra asks",
+        "self-change verifies through native shell, refuses failed checks, applies and rolls back a local candidate",
+        "restart preserves the selected Team mode and shared task history in the native Lead Session",
+        "restart preserves awaiting_decision and never duplicates an accepted background turn",
+        "restart preserves native logs/model choice and one-shot revisit reaches jingshen_decide",
+        "parallel permission/pause controls converge and revoke queued native activity",
+        "fault injection: delayed native pause flush cannot overtake newer resume permission state",
+        "fault injection: permission/pause/resume overlap reconciles the latest owner revision",
+        "direct native input while paused invokes neither model stream nor tool action",
+        "pause prevents deadline dispatch while keeping unresolved intentions",
+        "pause cancels active inference and stop prevents future autonomous actions"
+      ]
+    },
+    {
+      "suite": "chat",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "Ask mode does not initiate an idle chat or native open opportunity",
+        "IM submits authenticated owner input to the same native main session and pages exact, deduplicated replies",
+        "Full access allows the model to independently send a new message or quietly finish the next open turn",
+        "an idle wake uses the same independent model decisions to deliver two complete messages in one native turn",
+        "A project can independently publish one attributed IM message without making its private native answer an IM message",
+        "Pause prevents delivery and restart preserves cursor and never requeues the same owner submission"
+      ]
+    },
+    {
+      "suite": "open-activity",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "full access offers an event-free idle opportunity and preserves the native self-authored input",
+        "quiet orientation suppresses further event-free model requests",
+        "owner pause keeps an open orientation idle across another due interval",
+        "withdrawing full access aborts an admitted idle model turn and still accepts later owner input",
+        "an event-free opportunity can end silently without recording a judgment or blocking the next opportunity"
+      ]
+    },
+    {
+      "suite": "mediation",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "an ordinary main-session draft reaches the same selected model for a real publish decision before the native and IM messages are delivered",
+        "an explicit expression selects the actual public body in one model request and keeps the discarded draft and reasoning out of the public IM and proof",
+        "waiting and silence withhold drafts, while two volunteered utterances have distinct native message IDs and model steps in one turn",
+        "an intact ordinary answer is delivered before a separate native decision makes another message",
+        "a new decision after delivery can execute a real native tool and then finish silently",
+        "owner input queued during publication takes the next turn before any optional continuation",
+        "a participating project shows the laptop during real model work even before any tool runs",
+        "a participating owner project carries an exact provenance record and a standard project retains native output without a Spirit record",
+        "an explicitly participating custom project mediates normally and retains its native sandbox and approval even when global access becomes full",
+        "an already participating project keeps the owner’s later native customization and other conversations remain operable",
+        "a session created through the actual jingshen_sessions tool also withholds original fragments before delivering its attributed output",
+        "spawned and forked native team members review their drafts in their own sessions and report revised text under their original sender identities",
+        "pausing after the adapter generated draft tokens prevents even a transient native text fragment from reaching its consumer",
+        "the identified main session continues through Spirit after an explicit native preset change",
+        "the fallback expression review can rewrite an ordinary model answer before the very first published text token"
+      ]
+    },
+    {
+      "suite": "approval-ui",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "the native ask survives model selection and closing the fish window, and the actual Reject button prevents the mutation",
+        "Allow once settles the official native approval waterfall and creates exactly one real Workspace Session",
+        "pausing withdraws the pending approval and its native cancelled outcome leaves the Workspace untouched",
+        "the official native question carrier receives the exact option selected in the fish conversation",
+        "the live phone view exposes the same official native approval and the browser refusal prevents the mutation"
+      ]
+    },
+    {
+      "suite": "voice",
+      "serverSha256": "0727841b2d9ab30380c1271ce30aaa65850afd784851e5a48572ad178403dd91",
+      "checks": [
+        "voice interruption stops the exact native main continuation, releases phone presence, and preserves later owner input and project work"
+      ]
+    }
+  ],
+  "nativeMessageBadges": {
+    "suite": "tests/runtime-smoke.mjs --suite mediation (SPIRIT_MEDIATION_BROWSER=1)",
+    "checks": [
+      "an ordinary main-session draft reaches the same selected model for a real publish decision before the native and IM messages are delivered",
+      "an explicit expression selects the actual public body in one model request and keeps the discarded draft and reasoning out of the public IM and proof",
+      "waiting and silence withhold drafts, while two volunteered utterances have distinct native message IDs and model steps in one turn",
+      "an intact ordinary answer is delivered before a separate native decision makes another message",
+      "a new decision after delivery can execute a real native tool and then finish silently",
+      "owner input queued during publication takes the next turn before any optional continuation",
+      "a participating project shows the laptop during real model work even before any tool runs",
+      "a participating owner project carries an exact provenance record and a standard project retains native output without a Spirit record",
+      "an explicitly participating custom project mediates normally and retains its native sandbox and approval even when global access becomes full",
+      "an already participating project keeps the owner’s later native customization and other conversations remain operable",
+      "a session created through the actual jingshen_sessions tool also withholds original fragments before delivering its attributed output",
+      "spawned and forked native team members review their drafts in their own sessions and report revised text under their original sender identities",
+      "pausing after the adapter generated draft tokens prevents even a transient native text fragment from reaching its consumer",
+      "the identified main session continues through Spirit after an explicit native preset change",
+      "the fallback expression review can rewrite an ordinary model answer before the very first published text token",
+      "official Chromium Chat displays each verified badge, including an earlier reply after retrying a failed receipt lookup",
+      "the official Chromium private window displays the approved main reply and omits abandoned drafts and provider reasoning"
+    ],
+    "serverSha256": "04dc5eca2d4ae7b226c3791fb96e458790afd66aefddf595a0fc8c7bd5292a63"
+  },
+  "upgrade": {
+    "path": "Stock rc.5 CLI install of published v0.4.3, seed native owner chat, an unfinished intention and a project. Replace the plugin, open it through its fish and restart using the same profile and stateDir.",
+    "observed": "One installed card titled 精神, one dsh-jingshen preset. Native working directory, session IDs, permissions, history, intention and chat cursors survive.",
+    "driver": "tests/package-upgrade-browser-smoke.mjs",
+    "exactArchiveResults": "See the release verification attachment for the distributed tarball and SHA-256."
+  },
+  "visualInput": {
+    "path": "Linux Chromium, actual captured frames from test video and file-backed camera, local detection worker, explicit JPEG submission to image-capable model fixture.",
+    "serverSha256": "04dc5eca2d4ae7b226c3791fb96e458790afd66aefddf595a0fc8c7bd5292a63",
+    "clientSha256": "36eeed0b9f49a8f299fd1d9f22d2537573b16f34e7472d908b7a0c53f1b6a899",
+    "observed": "35 metadata frames, 37586-byte explicit image. Authorized playback advances the media clock and the fish watches while minimized. Minimizing releases camera, pause stops captures, closing page ends lease."
+  },
+  "voice": {
+    "default": {
+      "provider": "Breeze Blue",
+      "model": "breeze-tts-2",
+      "voice": "大肥鱼（迷糊版）",
+      "voiceId": "voc_8yud7hz7c9q2",
+      "credential": "BREEZE_API_KEY"
+    },
+    "browserPath": "Stock rc.5 Web, phone entry from chat header, Chromium file-backed microphone, bundled Mandarin Zipformer ASR, real optional host-local PrimeTTS and Web Audio. Speech and button interruptions, mute and hangup.",
+    "heard": [
+      "你好你听得见我吗",
+      "等一下我想说另一件事"
+    ],
+    "queue": "Regression tests exercised 40 independently delivered messages, including device playback and retained queued host speech.",
+    "browserEvidence": {
+      "grantedSource": "file-backed microphone",
+      "serverSha256": "04dc5eca2d4ae7b226c3791fb96e458790afd66aefddf595a0fc8c7bd5292a63",
+      "clientSha256": "36eeed0b9f49a8f299fd1d9f22d2537573b16f34e7472d908b7a0c53f1b6a899",
+      "scheduledAudioBuffers": 72,
+      "stoppedBuffers": 19,
+      "microphoneTracksAtHangup": [
+        "ended"
+      ],
+      "mobileViewport": "390x844",
+      "reportSha256": "e767bde0a656956dafdc2be7ed96c0bfca2c7986df4d9e3823eabe64abdec74e"
+    }
+  },
+  "distribution": "Release verification attachment records final-archive install/upgrade and SHA-256 checks after packing. The final client adds one change relative to the recorded media run: it hides the floating launcher on the Plugins page so the card toggle remains reachable.",
+  "limits": [
+    "Host autonomy and mediation cases use deterministic provider outputs. They test provenance, actual tool dispatch, native delivery, cancellation, revision and silence.",
+    "This release did not repeat the v0.4.3 authenticated production Breeze synthesis. Browser exercise used a file-backed microphone, not a physical handset.",
+    "Chromium responsive viewport only for mobile. Electron, Android, iOS, Windows, macOS and long-term model learning were not evaluated.",
+    "Chromium extension toolbar authorization and real signed-in video sites need separate evidence."
+  ]
+}

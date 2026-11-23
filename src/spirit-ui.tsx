@@ -326,6 +326,7 @@ export function SpiritWindow({ hideLauncher, renderManagement, renderModels, ren
   const activity = watchingVideo && !paused ? 'video' : fishActivity(data?.presence)
   const expression = data?.presence.expression
   const isPhone = mode === 'phone'
+  const callInProgress = call?.phase === 'connecting' || call?.connected === true
   const onCall = isPhone && call?.connected === true && !paused
   const currentMood = expression && Date.parse(expression.until) > Date.now() ? expressionMoods[expression.kind] : undefined
   const mood = !isPhone && gesture ? gesture.mood : currentMood
@@ -485,7 +486,7 @@ export function SpiritWindow({ hideLauncher, renderManagement, renderModels, ren
             <button type="button" className="jingshen-icon" title="管理精神"
               aria-label="管理精神" onClick={() => { setMediaPanel(undefined); setMode('manage') }}><Icon name="settings" /></button>
           </>}
-          {data && <VisionControls paused={paused || !isAuthorized(error)} minimized={!showing} hidden={!showChat && !isPhone}
+          {data && <VisionControls paused={paused || !isAuthorized(error)} inPhone={isPhone} callInProgress={callInProgress}
             open={mediaPanel === 'vision'} panelId={`${id}-vision`} onToggle={() => toggleMedia('vision')} onWatchingChange={setWatching} />}
           {isPhone && <button type="button" className="jingshen-icon" title="语音选项" aria-label="语音选项"
             aria-expanded={mediaPanel === 'voice'} aria-controls={`${id}-voice`} onClick={() => toggleMedia('voice')}><Icon name="settings" /></button>}

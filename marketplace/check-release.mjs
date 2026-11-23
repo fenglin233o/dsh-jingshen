@@ -53,7 +53,12 @@ try {
     if (manifest.files?.includes('media/voice')) {
       required.push('scripts/character-voice/prepare.py', 'scripts/character-voice/serve.py',
         'scripts/character-voice/voice.json', 'scripts/character-voice/xiaoyu.wav',
-        'scripts/character-voice/xiaoyu.txt', 'media/voice/xiaoyu-preview.mp3');
+        'scripts/character-voice/xiaoyu.txt', 'media/voice/xiaoyu-preview.mp3',
+        'media/voice/local/asr/encoder.int8.onnx', 'media/voice/local/asr/decoder.onnx',
+        'media/voice/local/asr/joiner.int8.onnx', 'media/voice/local/asr/weights-01.data',
+        'media/voice/local/asr/weights-02.data', 'media/voice/local/asr/tokens.txt', 'media/voice/local/asr/NOTICE',
+        'docs/asr-evaluation-0.4.6.json',
+        'media/voice/vad/fvad.js', 'media/voice/vad/fvad.wasm', 'media/voice/vad/LICENSE');
     }
     for (const lang of ['en', 'zh']) {
       const path = manifest.exports?.[`./locale/${lang}.json`];

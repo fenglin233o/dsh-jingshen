@@ -1,21 +1,27 @@
-Mandarin speech recognition model
-sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01
+Bundled Mandarin and English speech recognition
+X-ASR-zh-en bilingual Zipformer transducer by GilgameshWind
 
-The upstream model publisher distributes the ONNX model and accompanying
-vocabulary under the Apache License, Version 2.0. Both files are unmodified.
+The upstream pretrained model is published under the Apache License, Version
+2.0. See LICENSE and the pinned upstream sources for provenance:
+https://huggingface.co/GilgameshWind/X-ASR-zh-en/tree/689ff18c584d29910da37b6fe904db0c1489c9d1
+https://github.com/Gilgamesh-J/X-ASR/tree/838297cd47fed858e6cf72eaf5a52f948a3edd73
 
-Upstream ONNX release and license declaration:
-https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tree/763e4e5169ede1a08c65ee03b20ee6adb797ad0a
+Sherpa-ONNX published the converted and INT8-quantized model here:
+https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03/tree/bbc3ebbf8f134848f804967f3a3b69f981308a85
 
-Corresponding Apache-2.0 PyTorch model checkpoint:
-https://huggingface.co/csukuangfj/icefall-streaming-zipformer-small-ctc-zh-2025-04-01/tree/6768aa8b65bc68e128af2ee08a7142dd0abe4be4
+The decoder, joiner and vocabulary are unmodified. The bundled encoder uses
+ONNX external data so the graph and weights can be stored in files below 80 MB.
+The published encoder's tensor bytes and graph operations are unchanged.
+See scripts/local-speech/split-asr-model.py. Sherpa-ONNX reads the graph and both
+weight files directly from this directory. All files ship in the standard package.
 
-Release archive:
-https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01.tar.bz2
+SHA-256 of original encoder:
+2964d4afd257762931184b15fac04bcae79158b6b84fd9441fc33c8eb5a360ab  encoder-epoch-99-avg-1.int8.onnx
 
-The upstream model cards do not identify the original training corpora.
-Training datasets, test recordings, and unused tokenizer files are not included.
-
-SHA-256:
-68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a  model.int8.onnx
-6fed8c6c248516f38e7faa19404b57413e8ce259f1cbc1fa4aebc86eac32fdfd  tokens.txt
+SHA-256 of packaged files:
+3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe  encoder.int8.onnx
+c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5  decoder.onnx
+82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba  joiner.int8.onnx
+ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf  tokens.txt
+5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b  weights-01.data
+4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4  weights-02.data

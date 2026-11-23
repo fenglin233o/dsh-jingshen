@@ -1,29 +1,47 @@
 const { createHash } = require('node:crypto')
-const { readFileSync } = require('node:fs')
+const { closeSync, openSync, readSync } = require('node:fs')
 const { join } = require('node:path')
 
 const sampleRate = 16_000
 const maxSamples = 25 * sampleRate
+const minSamples = 2_400
 const assets = {
-  'model.int8.onnx': '68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a',
-  'tokens.txt': '6fed8c6c248516f38e7faa19404b57413e8ce259f1cbc1fa4aebc86eac32fdfd',
+  'encoder.int8.onnx': '3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe',
+  'decoder.onnx': 'c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5',
+  'joiner.int8.onnx': '82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba',
+  'tokens.txt': 'ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf',
+  'weights-01.data': '5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b',
+  'weights-02.data': '4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4',
 }
 
 function createRecognizer(sherpa, directory) {
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
   for (const [file, expected] of Object.entries(assets)) {
-    const digest = createHash('sha256').update(readFileSync(join(directory, file))).digest('hex')
-    if (digest !== expected) throw new Error('本地普通话识别模型不完整，请重新安装精神插件')
+    try {
+      const descriptor = openSync(join(directory, file), 'r')
+      const hash = createHash('sha256')
+      try {
+        for (let count; (count = readSync(descriptor, buffer)) > 0;) hash.update(buffer.subarray(0, count))
+      } finally {
+        closeSync(descriptor)
+      }
+      if (hash.digest('hex') === expected) continue
+    } catch { /* The model may have been removed or only partly installed. */ }
+    throw new Error('本地语音识别模型不完整，请重新安装精神插件')
   }
-  return new sherpa.OnlineRecognizer({
+  return new sherpa.OfflineRecognizer({
     featConfig: { sampleRate, featureDim: 80 },
     modelConfig: {
-      zipformer2Ctc: { model: join(directory, 'model.int8.onnx') },
+      transducer: {
+        encoder: join(directory, 'encoder.int8.onnx'),
+        decoder: join(directory, 'decoder.onnx'),
+        joiner: join(directory, 'joiner.int8.onnx'),
+      },
       tokens: join(directory, 'tokens.txt'),
       numThreads: 1,
       provider: 'cpu',
     },
     decodingMethod: 'greedy_search',
-    enableEndpoint: false,
   })
 }
 
@@ -60,8 +78,8 @@ function decodeWave(wave) {
     || format.readUInt32LE(4) !== sampleRate || format.readUInt32LE(8) !== sampleRate * 2
     || format.readUInt16LE(12) !== 2 || format.readUInt16LE(14) !== 16) throw invalid()
 
-  // Add enough trailing silence for the streaming encoder's final context window.
-  const samples = new Float32Array(audio.length / 2 + sampleRate / 2)
+  // Give the offline encoder enough frames even for an extremely short WAV.
+  const samples = new Float32Array(Math.max(audio.length / 2, minSamples))
   for (let offset = 0; offset < audio.length; offset += 2) {
     samples[offset / 2] = audio.readInt16LE(offset) / 32768
   }
@@ -72,9 +90,10 @@ function recognize(recognizer, wavBuffer) {
   const samples = decodeWave(wavBuffer)
   const stream = recognizer.createStream()
   stream.acceptWaveform({ samples, sampleRate })
-  stream.inputFinished()
-  while (recognizer.isReady(stream)) recognizer.decode(stream)
-  return recognizer.getResult(stream).text.trim()
+  recognizer.decode(stream)
+  const { text, tokens } = recognizer.getResult(stream)
+  if (tokens?.includes('<unk>') || /<unk>/iu.test(text) || !/[\p{L}\p{N}]/u.test(text)) return ''
+  return text.trim()
 }
 
 module.exports = { createRecognizer, recognize }

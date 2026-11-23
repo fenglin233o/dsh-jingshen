@@ -144,7 +144,7 @@ try {
     args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--no-proxy-server',
       `--host-resolver-rules=MAP vision-media.test 127.0.0.1:${mediaPort}, MAP ungranted-media.test 127.0.0.1:${mediaPort}`,
       `--use-file-for-fake-video-capture=${resolve(args.get('camera'))}`] })
-  const context = await browser.newContext({ locale: 'zh-CN', permissions: ['camera'], ignoreHTTPSErrors: true })
+  const context = await browser.newContext({ locale: 'zh-CN', permissions: ['camera', 'microphone'], ignoreHTTPSErrors: true })
   await context.addCookies([{ name: 'vision_fixture', value: 'must-not-be-sent', domain: 'vision-media.test',
     path: '/', secure: true, sameSite: 'None' }])
   page = await context.newPage()
@@ -155,7 +155,7 @@ try {
   const expectedClient = readFileSync(join(snapshot, 'lib/client.js'), 'utf8')
     .replace(/(?:\r?\n)?\/\/# sourceURL=[^\r\n]*(?:\r?\n)?$/, '')
     .replace(/(?:\r?\n)?\/\/# sourceMappingURL=[^\r\n]*(?:\r?\n)?$/, '')
-  assert(expectedClient.includes('minimizedRef'), 'Build the client with minimized vision support before running this smoke')
+  assert(expectedClient.includes('callInProgress'), 'Build the client with phone-scoped vision before running this smoke')
   page.on('response', response => {
     const address = new URL(response.url())
     if (address.origin !== origin) return
@@ -182,9 +182,14 @@ try {
   const controls = page.locator('.spirit-vision')
   const panel = controls.locator('.spirit-vision-controls')
   const vision = controls.getByRole('button', { name: /^视觉(?:已开启)?$/ })
+  const assertNoVisionControls = async () => {
+    assert.equal(await controls.locator('button, input').count(), 0)
+    assert.equal(await panel.isVisible(), false)
+  }
   const openWindow = async () => {
     if (await launcher.getAttribute('aria-expanded') !== 'true') await launcher.click()
     if (!await page.locator('.jingshen-window[data-phone]').isVisible()) {
+      await assertNoVisionControls()
       await page.getByRole('button', { name: '语音通话', exact: true }).click()
     }
     await vision.waitFor()
@@ -199,6 +204,7 @@ try {
   const minimize = () => page.getByRole('button', { name: '缩小窗口', exact: true }).click()
   const phonePose = page.locator('.jingshen-launcher .spirit-fish[data-scene="video"]')
   const status = () => api('/vision')
+  const returnToChat = () => page.getByRole('button', { name: '返回通讯', exact: true }).click()
   assert.equal((await status()).active, false)
   const firstLabel = args.get('first-label') ?? 'dog', secondLabel = args.get('second-label') ?? 'person'
   async function playback(name, play = {}, from = firstLabel, to = secondLabel, autonomous = false) {
@@ -206,11 +212,11 @@ try {
     assert.equal((await status()).watching, false)
     let dispatchId
     if (autonomous) {
-      await page.getByRole('button', { name: '返回通讯', exact: true }).click()
+      await returnToChat()
       await poll(async () => !(await launcher.getAttribute('aria-label')).includes('未读'), 'opening chat acknowledges its transcript')
       await openWindow()
       await minimize()
-      assert.equal(await panel.isVisible(), false)
+      await assertNoVisionControls()
       assert.equal((await status()).authorizedVideo, true, 'minimizing keeps the selected authorized video library')
       assert.equal(await phonePose.isVisible(), false, 'authorization alone cannot put the compact fish on its phone')
       await api('/behavior', { autonomy: 'vision-play', url: play.url }, true)
@@ -318,6 +324,22 @@ try {
   await openWindow()
   await startCamera()
   await poll(async () => (await status()).source === 'camera', 'new opt-in after re-opening the window')
+  await returnToChat()
+  await assertNoVisionControls()
+  await poll(async () => !(await status()).active && await page.evaluate(() =>
+    window.visionSmokeTracks.length > 2 && window.visionSmokeTracks.every(track => track.readyState === 'ended')),
+  'leaving the phone view releases real camera tracks and the visual lease')
+  await openWindow()
+  await page.locator('.spirit-voice-controls [data-action="connect"]').click()
+  await page.getByRole('button', { name: '关麦', exact: true }).waitFor()
+  await startCamera()
+  await poll(async () => (await status()).source === 'camera', 'camera opt-in during a connected call')
+  await page.getByRole('button', { name: '挂断', exact: true }).click()
+  await poll(async () => !(await status()).active && await page.evaluate(() =>
+    window.visionSmokeTracks.length > 3 && window.visionSmokeTracks.every(track => track.readyState === 'ended')),
+  'hanging up releases real camera tracks and the visual lease')
+  await startCamera()
+  await poll(async () => (await status()).source === 'camera', 'new opt-in after hanging up')
   await page.close()
   await poll(async () => !(await status()).active, 'closing the page releases its active visual lease')
   assert(observations.length > 5 && observations.every(frame => !frame.foundPixels))
@@ -334,7 +356,8 @@ try {
     model: 'Deterministic image-capable protocol fixture. Object recognition ran in Chromium using local MediaPipe WASM.',
     local, remote, library: { first: libraryFirst, second: librarySecond, refusedCrossDomainAndRedirect: true },
     videoRequests, camera, nativeModelImages: image.images, observations, observedCadenceMs,
-    pauseStoppedTracks: true, minimizingStoppedCameraTracks: true, closingPageEndedLease: true }, null, 2))
+    visionControlsOnlyInPhone: true, pauseStoppedTracks: true, minimizingStoppedCameraTracks: true,
+    leavingPhoneStoppedCameraTracks: true, hangingUpStoppedCameraTracks: true, closingPageEndedLease: true }, null, 2))
   process.stdout.write(`${report}\n`)
 } catch (error) {
   if (page && !page.isClosed()) {

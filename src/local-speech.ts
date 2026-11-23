@@ -27,7 +27,7 @@ interface LocalSpeechOptions {
 }
 const workerPath = fileURLToPath(new URL('../scripts/local-speech/worker.cjs', import.meta.url))
 const defaultModelRoot = fileURLToPath(new URL('../media/voice/local/', import.meta.url))
-const asrFiles = ['model.int8.onnx', 'tokens.txt']
+const asrFiles = ['encoder.int8.onnx', 'decoder.onnx', 'joiner.int8.onnx', 'tokens.txt', 'weights-01.data', 'weights-02.data']
 const ttsScripts = ['prime.cjs', 'ort.cjs', 'pcm.cjs', 'pinyin/index.cjs', 'ort/ort.wasm.min.mjs',
   'ort/ort-wasm-simd-threaded.mjs', 'ort/ort-wasm-simd-threaded.wasm']
 const maxPending = 8

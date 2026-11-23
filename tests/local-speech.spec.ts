@@ -60,12 +60,17 @@ function fixture(addonAvailable = true) {
   const model = join(modelRoot, 'tts', 'model.onnx')
   writeFileSync(model, 'fixture')
   writeFileSync(join(modelRoot, 'tts', 'model.json'), JSON.stringify({ type: 'prime', files: ['model.onnx'] }))
-  for (const file of ['model.int8.onnx', 'tokens.txt']) writeFileSync(join(modelRoot, 'asr', file), 'fixture')
+  const asrShard = join(modelRoot, 'asr', 'weights-02.data')
+  for (const file of ['encoder.int8.onnx', 'decoder.onnx', 'joiner.int8.onnx', 'tokens.txt', 'weights-01.data']) {
+    writeFileSync(join(modelRoot, 'asr', file), 'fixture')
+  }
+  writeFileSync(asrShard, 'fixture')
   const speech = new LocalSpeech({ modelRoot, workerPath: join(scripts, 'worker.cjs'),
     addonPath: join(scripts, addonAvailable ? 'addon.cjs' : 'missing.cjs'), idleMS: 250 })
   return {
     speech,
     model,
+    asrShard,
     log: () => readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean),
     close: () => { speech.close(); rmSync(directory, { recursive: true, force: true }) },
   }
@@ -92,6 +97,17 @@ it('checks actual assets lazily and offers Prime without a native Sherpa addon',
     expect(f.log().map(line => line.split(':')[1])).toEqual(['prime-open', 'lazy'])
     rmSync(f.model)
     expect(f.speech.available('tts')).toBe(false)
+  } finally { f.close() }
+})
+
+it('requires all bundled recognition weights before offering the input', async () => {
+  const f = fixture()
+  try {
+    expect(f.speech.available('asr')).toBe(true)
+    rmSync(f.asrShard)
+    expect(f.speech.available('asr')).toBe(false)
+    await expect(f.speech.transcribe(Uint8Array.of(42), signal)).rejects.toThrow('本机语音识别不可用')
+    expect(f.log()).toEqual([])
   } finally { f.close() }
 })
 

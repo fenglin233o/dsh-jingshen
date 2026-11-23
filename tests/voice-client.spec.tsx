@@ -3,8 +3,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { VoiceCall } from '../src/voice-client.tsx'
-import { localMandarinVoice } from '../src/voice-device.ts'
+import { localVoice } from '../src/voice-device.ts'
 import { PLAY_RATE, type VoiceAvailability, type VoiceEvent } from '../src/voice-protocol.ts'
+
+vi.mock('../src/speech-detector.ts', () => ({
+  createSpeechDetector: async () => ({ voiced: () => true, close() {} }),
+}))
 
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 globals.IS_REACT_ACT_ENVIRONMENT = true
@@ -21,6 +25,7 @@ const voice = (name: string, lang: string, localService: boolean, preferred = fa
 const online = voice('在线中文', 'zh-CN', false, true)
 const taiwan = voice('台湾普通话', 'zh-TW', true)
 const mainland = voice('普通话设备声线', 'zh_CN', true)
+const english = voice('English on-device', 'en-GB', true)
 const host = { name: '近端角色引擎', model: 'character', voice: 'xiaoyu', location: 'host-local' } as const
 const breeze = { provider: 'breezeblue', name: '大肥鱼（迷糊版）', model: 'breeze-tts-2',
   voice: 'v8yud7hz7c9q2', location: 'cloud' } as const
@@ -43,6 +48,7 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
   status?: () => Pick<VoiceAvailability, 'output' | 'setup'>
   saveBreezeKey?: (key: string) => Promise<void>
   speech?: (signal?: AbortSignal | null) => Response
+  transcription?: string
   microphone?: () => Promise<MediaStream>
   addWorklet?: () => Promise<void>
 } = {}) {
@@ -102,6 +108,7 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
         if (stream === controller) { stream = undefined; controller.close() }
       }, { once: true })
     } }))
+    if (action === 'audio') return Response.json({ text: options.transcription ?? '' })
     if (action === 'speech') return options.speech?.(init?.signal) ?? Response.json({ error: '宿主语音不可用' }, { status: 503 })
     return Response.json({ ok: true })
   })
@@ -123,7 +130,7 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
       synth.dispatchEvent(new Event('voiceschanged'))
     }),
     select: (value: string) => act(async () => {
-      const select = element.querySelector('select')!
+      const select = element.querySelector<HTMLSelectElement>('[aria-label="通话输出"]')!
       select.value = value
       select.dispatchEvent(new Event('change', { bubbles: true }))
     }),
@@ -133,9 +140,48 @@ async function mount(output: VoiceAvailability['output'] = null, detectedVoices:
 }
 
 it('只选浏览器标记为本机的普通话声线，优先中国大陆普通话', () => {
-  expect(localMandarinVoice([online, voice('广东话', 'zh-HK', true), voice('粤语', 'zh-yue', true)])).toBeUndefined()
-  expect(localMandarinVoice([online, taiwan, mainland])).toBe(mainland)
-  expect(localMandarinVoice([voice('普通话 macrolanguage', 'zh', true), voice('系统默认', 'cmn-CN', true, true)])?.name).toBe('系统默认')
+  expect(localVoice([online, english, voice('广东话', 'zh-HK', true), voice('粤语', 'zh-yue', true)], 'zh')).toBeUndefined()
+  expect(localVoice([online, taiwan, mainland], 'zh')).toBe(mainland)
+  expect(localVoice([voice('普通话 macrolanguage', 'zh', true), voice('系统默认', 'cmn-CN', true, true)], 'zh')?.name).toBe('系统默认')
+})
+
+it('只有本机英语声线的设备也能直接接通，并提示不支持的普通话片段', async () => {
+  const cloudEnglish = voice('English online', 'en-US', false, true)
+  const view = await mount(null, [cloudEnglish, english])
+  expect(view.find('接通语音').disabled).toBe(false)
+  await view.click('接通语音')
+  await view.speak('说一下时间。The meeting starts at noon.')
+  expect(view.spoken[0]).toMatchObject({ text: 'The meeting starts at noon.', voice: english, lang: 'en-GB' })
+  await act(async () => { view.spoken[0]?.onstart?.(); view.spoken[0]?.onend?.() })
+  expect(view.spoken).toHaveLength(1)
+  expect(view.element.textContent).toContain('设备没有本机普通话声线')
+  expect(view.calls).not.toContain('speech')
+})
+
+it('设备在同一通话按每条回复切换英语和普通话声线，并保持混合原文', async () => {
+  const view = await mount(null, [mainland, english])
+  await view.click('接通语音')
+  await view.speak('Here is the English reply.')
+  expect(view.spoken[0]?.voice).toBe(english)
+  await act(async () => { view.spoken[0]?.onstart?.(); view.spoken[0]?.onend?.() })
+  const mixed = '我们可以检查 API status，再告诉我结果。'
+  await view.speak(mixed)
+  for (const index of [1, 2, 3]) await act(async () => { view.spoken[index]?.onstart?.(); view.spoken[index]?.onend?.() })
+  expect(view.spoken.slice(1).map(utterance => utterance.voice)).toEqual([mainland, english, mainland])
+  expect(view.spoken.slice(1).map(utterance => utterance.text).join('')).toBe(mixed)
+  expect(view.calls.filter(action => action === 'playing')).toHaveLength(4)
+})
+
+it('打断混合回复时取消当前语音并跳过该回复的剩余片段', async () => {
+  const view = await mount(null, [mainland, english])
+  await view.click('接通语音')
+  await view.speak('先念上半句，然后 say this in English。')
+  await act(async () => view.spoken[0]?.onstart?.())
+  await view.click('打断朗读')
+  expect(view.synth.cancel).toHaveBeenCalledOnce()
+  expect(view.spoken).toHaveLength(1)
+  await view.speak('This is the next reply.')
+  expect(view.spoken[1]?.voice).toBe(english)
 })
 
 it('关麦立即停止正在初始化的采集，随后重新开麦只安装一次采集处理器', async () => {
@@ -191,7 +237,7 @@ it('设备朗读按顺序播放快速送达的每条消息', async () => {
 it('浏览器晚到的本机普通话声线可自动接通，不向宿主发送合成请求，断开清除播放', async () => {
   const view = await mount(null, [online])
   expect(view.find('接通语音').disabled).toBe(true)
-  expect(view.element.textContent).toContain('设备没有本机普通话声线')
+  expect(view.element.textContent).toContain('设备没有本机普通话或英语声线')
   await view.voices([online, mainland])
   expect(view.find('接通语音').disabled).toBe(false)
   await view.click('接通语音')
@@ -226,7 +272,7 @@ it('保留用户手选的设备或宿主偏好；设备声线消失时不切到�
   expect(localStorage.getItem('personal-spirit:voice-output')).toBe('system')
   await view.voices([online])
   expect(view.find('接通语音').disabled).toBe(true)
-  expect(view.element.querySelector('select')?.value).toBe('system')
+  expect(view.element.querySelector<HTMLSelectElement>('[aria-label="通话输出"]')?.value).toBe('system')
   await view.select('host')
   await view.voices([mainland])
   await view.click('接通语音')
@@ -420,4 +466,40 @@ it('更新密钥失败时清空输入并隐藏回调错误内容', async () => {
   expect(view.element.textContent).not.toContain('fixture-rejected-key')
   expect(view.calls).toEqual(['status'])
   expect(localStorage.length).toBe(0)
+})
+
+it('麦克风待机和噪声不取消生成，正常输入后一次新的收音也不取消尚未播出的回复', async () => {
+  const stream = { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream
+  const view = await mount(host, [], { input, transcription: '请继续', microphone: async () => stream })
+  await view.click('接通并开麦')
+  const status = () => view.element.querySelector('.spirit-voice-status')?.textContent
+  const frames = async (energy: number, count: number) => act(async () => {
+    for (let i = 0; i < count; i++) view.micPort.onmessage?.(new MessageEvent('message', {
+      data: new Float32Array(480).fill(energy),
+    }))
+  })
+  expect(status()).toBe('正在适应环境声音')
+  await frames(0.004, 100)
+  expect(status()).toBe('等你开口')
+  await frames(0.2, 3)
+  await frames(0, 40)
+  expect(status()).toBe('等你开口')
+  expect(view.calls).not.toContain('audio')
+  await frames(0.06, 12)
+  expect(status()).toBe('正在聆听')
+  await frames(0, 40)
+  expect(view.element.textContent).toContain('刚听到：请继续')
+  await frames(0.1, 12)
+  expect(view.calls.filter(action => action === 'audio')).toHaveLength(1)
+  expect(view.calls).not.toContain('interrupt')
+})
+
+it('仅转写的通话显示实际交付的回复，挂断后清除字幕', async () => {
+  const view = await mount(null, [], { input })
+  await view.click('仅转写并开麦')
+  await view.speak('我听见了')
+  expect(view.element.querySelector('.spirit-voice-caption')?.textContent).toBe('精神：我听见了')
+  expect(view.calls).not.toContain('speech')
+  await view.click('挂断')
+  expect(view.element.querySelector('.spirit-voice-caption')).toBeNull()
 })

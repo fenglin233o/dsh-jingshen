@@ -895,7 +895,9 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>): Pr
     disposers.push(preserveLegacyPreset(ctx))
     disposers.push(registerFishAssets(ctx, packageRoot))
     disposers.push(preserveManagedBlankPreset(ctx, id => !closed && !ctx.workspaceRegistry.archivedSessionIds.includes(id as SessionId), mainId))
-    changes = new SelfChangeBook({ stateDir: config.stateDir, targets: [{ id: 'spirit', root: config.sourceRoot, label: '精神插件', activation: 'plugin-reload' },
+    // A plugin candidate needs its bundled speech weights for end-to-end verification.
+    changes = new SelfChangeBook({ stateDir: config.stateDir, defaultMaxBytesByTarget: { spirit: 256 * 1024 * 1024 },
+      targets: [{ id: 'spirit', root: config.sourceRoot, label: '精神插件', activation: 'plugin-reload' },
       ...(config.harnessSourceRoot ? [{ id: 'harness', root: config.harnessSourceRoot, label: 'DeepSeek Harness', activation: 'host-restart' as const }] : [])] })
     activation = new ActivationService({ stateDir: config.stateDir })
     autonomy = new Autonomy(app.store, { deliberate: async (packet, signal) => {

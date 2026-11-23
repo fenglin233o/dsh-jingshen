@@ -1,0 +1,370 @@
+{
+  "version": "0.4.6",
+  "evaluatedOn": "2026-11-23",
+  "model": {
+    "name": "X-ASR-zh-en bilingual Zipformer transducer",
+    "source": "https://huggingface.co/GilgameshWind/X-ASR-zh-en/tree/689ff18c584d29910da37b6fe904db0c1489c9d1",
+    "license": "Apache-2.0",
+    "onnxSource": "https://huggingface.co/csukuangfj2/sherpa-onnx-x-asr-zipformer-transducer-zh-en-int8-2026-06-03/tree/bbc3ebbf8f134848f804967f3a3b69f981308a85",
+    "originalEncoderSha256": "2964d4afd257762931184b15fac04bcae79158b6b84fd9441fc33c8eb5a360ab",
+    "packagedAssets": {
+      "encoder.int8.onnx": {
+        "sha256": "3a60336fd877b2335069a7db46241e667f86a77656406c9d395446eb9962bfbe",
+        "bytes": 9243851
+      },
+      "decoder.onnx": {
+        "sha256": "c6a045cd52d4d2693c19218f404be6e37b6130e1244814ce31fa2188e4355cb5",
+        "bytes": 11309084
+      },
+      "joiner.int8.onnx": {
+        "sha256": "82e88dad29301e29144565cd3b7347fa163f07ddb30ea60346b7c4c536adf4ba",
+        "bytes": 2581422
+      },
+      "tokens.txt": {
+        "sha256": "ad0df596d9cc60c90795409549ccf7d1c4f901bdc060dd6b2b067d9ef2fddfaf",
+        "bytes": 59240
+      },
+      "weights-01.data": {
+        "sha256": "5cee44a66cc714ce11d96d7913ad2d8cc617dc0df95f8b00e0da9cce9a4faf3b",
+        "bytes": 79208576
+      },
+      "weights-02.data": {
+        "sha256": "4a8486c66f1482c8e40bff272b5cb681a70fea278c0789250e8bc193dde8f9c4",
+        "bytes": 73346048
+      }
+    },
+    "packaging": "Move encoder tensors of at least 1,024 raw bytes to relative ONNX external data files of at most 80,000,000 bytes with scripts/local-speech/split-asr-model.py and onnx 1.20.0. Use a fresh directory, then rename the resulting model.int8.onnx to encoder.int8.onnx. The decoder, joiner and vocabulary are byte-identical to the published files."
+  },
+  "comparisons": {
+    "published045Mandarin": {
+      "version": "0.4.5",
+      "name": "sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01/tree/763e4e5169ede1a08c65ee03b20ee6adb797ad0a",
+      "modelSha256": "68c9c943840f7d9cf3e8a4970ba50f404feb5277f611fa82b7e72267786fa84a",
+      "modelBytes": 26342340,
+      "decoding": "OnlineRecognizer with zipformer2Ctc, endpoint detection disabled. Append 8,000 zero samples, mark the input finished and decode until the stream is no longer ready."
+    },
+    "candidateParaformer": {
+      "name": "sherpa-onnx-paraformer-bilingual-zh-en",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-bilingual-zh-en/tree/4b891f7b5c73d874e607797a4b0578fd4c35dd4b",
+      "modelSha256": "9ada9127ca5b82320385ac12340eb8b05dee64fd45cf8cf593ec693826ec2fd7",
+      "tokensSha256": "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6",
+      "modelBytes": 223385835,
+      "note": "An evaluated candidate. The standard package bundles only X-ASR."
+    }
+  },
+  "method": {
+    "runtime": "Node.js 24.22.3, Sherpa-ONNX 1.13.8, Linux x64, CPU, one model thread. X-ASR uses OfflineRecognizer with modelConfig.transducer and greedy search; Paraformer uses modelConfig.paraformer. Both use 16 kHz mono PCM with 80-dimensional features and zero-pad inputs below 2,400 samples. Neither decoder receives a language hint, dictionary, or text correction.",
+    "sampling": "Use every row of the listed test or dev blocks from the Hugging Face dataset viewer rows endpoint. For mixed speech, remove the bracketed or angle-bracketed annotation tokens noise, unk, laughter, pp and sil before requiring the human reference to contain both Han and Latin letters.",
+    "rowsEndpoint": "https://datasets-server.huggingface.co/rows",
+    "audio": "Decode source audio to signed 16-bit, 16 kHz mono PCM using FFmpeg 7.1.5 as needed. The 60 MINDS-14 source recordings are mono 8 kHz G.711 µ-law WAV. Resampling did not change their durations or truncate them; the longest was 24.576 seconds.",
+    "scoring": "Score raw output before the call rejects unknown results. Use Levenshtein edits divided by normalized reference units. For Mandarin CER the units are Unicode letters and numbers, counted as individual characters. In English WER each ASCII alphanumeric word is one unit and internal apostrophes stay in the word. In mixed error rate (MER), each Han character and each English word are one unit. Lowercase and fold curly apostrophes to straight apostrophes. Treat a literal <unk> as an unknown unit. An exact match has no edits. In mixed results, script counts say whether both Han and English tokens occur, independently of correctness.",
+    "limits": "These deterministic samples are a subset of their corpora. Benchmarks use the public references as provided. Training overlap is unknown. More than half the reference words in the US telephone subset come from clips longer than eight seconds, and this subset had the highest English error rate. Mixed utterances remain harder than clear read speech."
+  },
+  "corpora": {
+    "aishell1": {
+      "source": "https://www.openslr.org/33/",
+      "dataset": "AudioLLMs/aishell_1_zh_test",
+      "datasetRevision": "e73dc7f096ecea5c8e5c722446c8d3b4014fdd18",
+      "datasetUrl": "https://huggingface.co/datasets/AudioLLMs/aishell_1_zh_test/tree/e73dc7f096ecea5c8e5c722446c8d3b4014fdd18",
+      "config": "default",
+      "splits": [
+        "test"
+      ],
+      "offsets": [
+        0,
+        1000,
+        2000,
+        3000,
+        4000,
+        5000,
+        6000
+      ],
+      "rowsPerOffsetPerSplit": 20,
+      "audioField": "context[0].src",
+      "referenceField": "answer"
+    },
+    "wenetspeech": {
+      "source": "https://github.com/wenet-e2e/WenetSpeech",
+      "dataset": "lmms-lab/WenetSpeech_temp",
+      "datasetRevision": "8a5eb6488e2dd9bccd83026ec15634045e894014",
+      "datasetUrl": "https://huggingface.co/datasets/lmms-lab/WenetSpeech_temp/tree/8a5eb6488e2dd9bccd83026ec15634045e894014",
+      "config": "default",
+      "splits": [
+        "dev",
+        "test_meeting"
+      ],
+      "offsets": [
+        0,
+        200,
+        400,
+        600
+      ],
+      "rowsPerOffsetPerSplit": 15,
+      "audioField": "audio[0].src",
+      "referenceField": "text"
+    },
+    "librispeechClean": {
+      "dataset": "openslr/librispeech_asr",
+      "datasetRevision": "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1",
+      "source": "https://www.openslr.org/12/",
+      "configs": [
+        "clean"
+      ],
+      "split": "test",
+      "offsets": [
+        0,
+        500,
+        1000
+      ],
+      "rowsPerOffsetPerConfig": 10,
+      "audioField": "audio[0].src",
+      "referenceField": "text"
+    },
+    "minds14Telephone": {
+      "dataset": "PolyAI/minds14",
+      "datasetRevision": "40ce77cb32a384e4d50a568e1ec39ac804019d33",
+      "source": "https://huggingface.co/datasets/PolyAI/minds14/tree/40ce77cb32a384e4d50a568e1ec39ac804019d33",
+      "configs": [
+        "en-US",
+        "en-GB"
+      ],
+      "split": "train",
+      "offsets": [
+        0,
+        150,
+        300
+      ],
+      "rowsPerOffsetPerConfig": 10,
+      "audioField": "audio[0].src",
+      "referenceField": "transcription"
+    },
+    "ascendMixed": {
+      "source": "https://huggingface.co/datasets/CAiRE/ASCEND",
+      "dataset": "WTForbes/ASCEND_MIXED",
+      "datasetRevision": "76cac665ed0c38e96f973cb3b7af08ca9a3328e3",
+      "configs": [
+        "default"
+      ],
+      "split": "test",
+      "offsets": [
+        0,
+        60,
+        120,
+        240
+      ],
+      "rowsPerOffsetPerConfig": 8,
+      "audioField": "audio[0].src",
+      "referenceField": "transcription"
+    },
+    "seameMandarin": {
+      "dataset": "AudioLLMs/seame_dev_man",
+      "datasetRevision": "4a510d3e42acdf71a08441219b70fab0df9d255d",
+      "source": "https://huggingface.co/datasets/AudioLLMs/seame_dev_man/tree/4a510d3e42acdf71a08441219b70fab0df9d255d",
+      "configs": [
+        "seame_dev_man"
+      ],
+      "split": "test",
+      "offsets": [
+        0,
+        500,
+        1000,
+        2000
+      ],
+      "rowsPerOffsetPerConfig": 8,
+      "audioField": "context[0].src",
+      "referenceField": "answer"
+    },
+    "seameSingapore": {
+      "dataset": "AudioLLMs/seame_dev_sge",
+      "datasetRevision": "9b41e3e4b96ac23a05636b46a5792ed3ef54378b",
+      "source": "https://huggingface.co/datasets/AudioLLMs/seame_dev_sge/tree/9b41e3e4b96ac23a05636b46a5792ed3ef54378b",
+      "configs": [
+        "seame_dev_sge"
+      ],
+      "split": "test",
+      "offsets": [
+        0,
+        500,
+        1000,
+        2000
+      ],
+      "rowsPerOffsetPerConfig": 8,
+      "audioField": "context[0].src",
+      "referenceField": "answer"
+    }
+  },
+  "installedPackageChecks": {
+    "runtime": "Installed the standard npm tarball locally with the Sherpa-ONNX 1.13.8 runtime and started the packaged worker.",
+    "singleWorker": "The same worker matched public Mandarin, English, and naturally code-switched speech examples after normalizing case and punctuation. The worker received no language selection.",
+    "noSpeech": "One-sample silence, two seconds of low-level noise and 120 Hz hum, and 25 seconds of silence returned empty text. A naturally code-switched utterance still passed afterward."
+  },
+  "results": {
+    "aishell1": {
+      "published045Mandarin": {
+        "recordings": 140,
+        "referenceUnits": 1953,
+        "edits": 164,
+        "characterErrorPercent": 8.4,
+        "exactMatches": 68,
+        "unknownResults": 0,
+        "emptyResults": 1
+      },
+      "xAsr": {
+        "recordings": 140,
+        "referenceUnits": 1953,
+        "edits": 88,
+        "characterErrorPercent": 4.51,
+        "exactMatches": 101,
+        "unknownResults": 0,
+        "emptyResults": 1
+      }
+    },
+    "wenetspeech": {
+      "published045Mandarin": {
+        "recordings": 120,
+        "referenceUnits": 2661,
+        "edits": 310,
+        "characterErrorPercent": 11.65,
+        "exactMatches": 25,
+        "unknownResults": 2,
+        "emptyResults": 0
+      },
+      "xAsr": {
+        "recordings": 120,
+        "referenceUnits": 2661,
+        "edits": 127,
+        "characterErrorPercent": 4.77,
+        "exactMatches": 52,
+        "unknownResults": 0,
+        "emptyResults": 0
+      }
+    },
+    "librispeechClean": {
+      "xAsr": {
+        "recordings": 30,
+        "referenceUnits": 759,
+        "edits": 18,
+        "wordErrorPercent": 2.37,
+        "exactMatches": 22,
+        "unknownResults": 0,
+        "emptyResults": 0
+      },
+      "candidateParaformer": {
+        "recordings": 30,
+        "referenceUnits": 759,
+        "edits": 79,
+        "wordErrorPercent": 10.41,
+        "exactMatches": 8,
+        "unknownResults": 0,
+        "emptyResults": 0
+      }
+    },
+    "minds14EnUs": {
+      "xAsr": {
+        "recordings": 30,
+        "referenceUnits": 512,
+        "edits": 257,
+        "wordErrorPercent": 50.2,
+        "exactMatches": 7,
+        "unknownResults": 0,
+        "emptyResults": 0
+      },
+      "candidateParaformer": {
+        "recordings": 30,
+        "referenceUnits": 512,
+        "edits": 260,
+        "wordErrorPercent": 50.78,
+        "exactMatches": 3,
+        "unknownResults": 0,
+        "emptyResults": 0
+      }
+    },
+    "minds14EnGb": {
+      "xAsr": {
+        "recordings": 30,
+        "referenceUnits": 365,
+        "edits": 49,
+        "wordErrorPercent": 13.42,
+        "exactMatches": 16,
+        "unknownResults": 0,
+        "emptyResults": 0
+      },
+      "candidateParaformer": {
+        "recordings": 30,
+        "referenceUnits": 365,
+        "edits": 96,
+        "wordErrorPercent": 26.3,
+        "exactMatches": 9,
+        "unknownResults": 0,
+        "emptyResults": 0
+      }
+    },
+    "ascendMixed": {
+      "xAsr": {
+        "recordings": 32,
+        "referenceUnits": 433,
+        "edits": 63,
+        "mixedErrorPercent": 14.55,
+        "exactMatches": 9,
+        "unknownResults": 0,
+        "emptyResults": 0,
+        "outputsContainingBothScripts": 24
+      },
+      "candidateParaformer": {
+        "recordings": 32,
+        "referenceUnits": 433,
+        "edits": 84,
+        "mixedErrorPercent": 19.4,
+        "exactMatches": 6,
+        "unknownResults": 0,
+        "emptyResults": 0,
+        "outputsContainingBothScripts": 24
+      }
+    },
+    "seameMandarin": {
+      "xAsr": {
+        "recordings": 23,
+        "referenceUnits": 663,
+        "edits": 197,
+        "mixedErrorPercent": 29.71,
+        "exactMatches": 0,
+        "unknownResults": 0,
+        "emptyResults": 0,
+        "outputsContainingBothScripts": 18
+      },
+      "candidateParaformer": {
+        "recordings": 23,
+        "referenceUnits": 663,
+        "edits": 236,
+        "mixedErrorPercent": 35.6,
+        "exactMatches": 0,
+        "unknownResults": 0,
+        "emptyResults": 1,
+        "outputsContainingBothScripts": 18
+      }
+    },
+    "seameSingapore": {
+      "xAsr": {
+        "recordings": 15,
+        "referenceUnits": 178,
+        "edits": 72,
+        "mixedErrorPercent": 40.45,
+        "exactMatches": 0,
+        "unknownResults": 0,
+        "emptyResults": 0,
+        "outputsContainingBothScripts": 7
+      },
+      "candidateParaformer": {
+        "recordings": 15,
+        "referenceUnits": 178,
+        "edits": 80,
+        "mixedErrorPercent": 44.94,
+        "exactMatches": 0,
+        "unknownResults": 0,
+        "emptyResults": 0,
+        "outputsContainingBothScripts": 9
+      }
+    }
+  }
+}

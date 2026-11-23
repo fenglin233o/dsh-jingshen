@@ -65,6 +65,11 @@ createRoot(document.getElementById('app')!).render(<SpiritWindow renderManagemen
       const path = new URL(req.url, 'http://localhost').pathname
       if (path === '/') { res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div><script src="/voice.js"></script>'); return }
       if (path === '/voice.js') { res.writeHead(200, { 'content-type': 'application/javascript' }).end(code); return }
+      if (path === '/personal-spirit/assets/voice/vad/fvad.js' || path === '/personal-spirit/assets/voice/vad/fvad.wasm') {
+        const type = path.endsWith('.js') ? 'text/javascript' : 'application/wasm'
+        res.writeHead(200, { 'content-type': type }).end(await readFile(join(project, 'media/voice/vad', path.split('/').pop())))
+        return
+      }
       const sprite = /^\/personal-spirit\/assets\/fish\/(activity|social|social-rest)\.png$/.exec(path)
       if (sprite) { res.writeHead(200, { 'content-type': 'image/png' }).end(await readFile(join(project, 'media/fish', `${sprite[1]}.png`))); return }
       if (req.headers['x-personal-spirit'] !== '1') { res.writeHead(403).end(); return }

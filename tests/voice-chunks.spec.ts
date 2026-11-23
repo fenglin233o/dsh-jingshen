@@ -132,9 +132,10 @@ async function openBreeze() {
   for (const key of ['SPIRIT_TTS_MODEL', 'SPIRIT_TTS_PROTOCOL', 'SPIRIT_TTS_BASE_URL', 'SPIRIT_ASR_BASE_URL']) vi.stubEnv(key, undefined)
   vi.stubEnv('BREEZE_API_KEY', 'synthetic-test-value')
   vi.spyOn(LocalSpeech.prototype, 'available').mockImplementation(kind => kind === 'asr')
-  const requests: { text: string; signal: AbortSignal }[] = []
+  const requests: { text: string; model_id: string; language_code?: string; signal: AbortSignal }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-    requests.push({ text: JSON.parse(init!.body as string).text, signal: init!.signal! })
+    const { text, model_id, language_code } = JSON.parse(init!.body as string)
+    requests.push({ text, model_id, language_code, signal: init!.signal! })
     return new Response(Uint8Array.of(3, 0), { headers: { 'content-type': 'audio/pcm' } })
   })
   const service = new VoiceService({ ctx: { get: () => undefined } as unknown as Context, checkActive() {}, submit: async () => {} })
@@ -176,6 +177,7 @@ test('long Breeze replies split at natural boundaries within the 1,000 Unicode c
     expect(chunks.slice(0, 2)).toEqual([sentence, clause])
     expect(chunks.every(chunk => Array.from(chunk).length <= 1000)).toBe(true)
     expect(chunks.join('')).toBe(text)
+    expect(f.requests.every(request => request.model_id === 'breeze-tts-2-multilingual' && request.language_code === undefined)).toBe(true)
   } finally { f.service.close() }
 })
 

@@ -1,0 +1,4 @@
+WebRTC voice activity detection, libfvad, WASM build from @echogarden/fvad-wasm 0.2.0.
+https://github.com/echogarden-project/fvad-wasm
+https://github.com/dpirch/libfvad
+The distributed module, binary and license are copied unchanged from the npm archive.

@@ -7,6 +7,8 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 export function registerFishAssets(ctx: Context, packageRoot: string): () => void {
   const assets = [
     ...['activity.png', 'social.png', 'social-rest.png'].map(file => ({ file: 'fish/' + file, type: 'image/png' })),
+    { file: 'voice/vad/fvad.js', type: 'text/javascript' },
+    { file: 'voice/vad/fvad.wasm', type: 'application/wasm' },
     { file: 'voice/xiaoyu-preview.mp3', type: 'audio/mpeg' },
     { file: 'voice/xiaoyu-light-preview.mp3', type: 'audio/mpeg' },
   ]

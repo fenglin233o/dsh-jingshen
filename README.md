@@ -1,16 +1,16 @@
 # 精神 · dsh-jingshen
 
-**精神**是 fenglin 基于 SuperAgent 开发的个人 AI 助手，包名为 `dsh-jingshen`。在 DeepSeek Harness 的工作画幅里点一下小肥鱼，就能进入它的主会话。**0.4.5 适配 Harness 0.2.2-rc.5，要求 Node.js 24.9 或更高版本。** [下载 0.4.5 安装包](https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.4.5/dsh-jingshen-0.4.5.tgz) · [发行说明与可选资产](https://github.com/fenglin233o/dsh-jingshen/releases/tag/v0.4.5)
+**精神**是 fenglin 基于 SuperAgent 开发的个人 AI 助手，包名为 `dsh-jingshen`。在 DeepSeek Harness 的工作画幅里点一下小肥鱼，就能进入它的主会话。**0.4.6 适配 Harness 0.2.2-rc.5，要求 Node.js 24.9 或更高版本。** [下载 0.4.6 安装包](https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.4.6/dsh-jingshen-0.4.6.tgz) · [发行说明与可选资产](https://github.com/fenglin233o/dsh-jingshen/releases/tag/v0.4.6)
 
 比如你和小肥鱼商量周末去湖边，隔天又决定去书店。它可以把原来的安排改掉，在另一段会话里继续做这件事。支撑这种接续的是各会话共同使用的工作状态。主会话压缩后，已经取消的工作仍保持取消。
 
-- **跟它聊天或打电话。** 主会话里的每条发言都经过精神决定后才交付。接通电话可以随时插话，默认在本机转写普通话，再用 Breeze 的「大肥鱼（迷糊版）」读出它发给你的话。[通话与连续视觉](docs/MEDIA.md)
+- **跟它聊天或打电话。** 主会话里的每条发言都经过精神决定后才交付。接通电话可以随时插话，当场说普通话、英语或一句中英混合的话，随包模型会在本机转写。默认用 Breeze 的「大肥鱼（迷糊版）」读出它发给你的话。[通话与连续视觉](docs/MEDIA.md)
 - **让它参与项目。** 它可以借助工作会话、智能体团队和子代理推进事情。它在其他会话中参与发布时，回复旁会显示“精神”。[架构与会话协作](docs/ARCHITECTURE.md)
 - **决定它可以做什么。** 你可以要求敏感操作先询问，或授予完全访问，也可以暂停、恢复和停止活动。它能提出并实施源码改动，分别记录验证、应用、运行加载和后续效果。[实现与验证](docs/IMPLEMENTATION.md)
 
 设计取自《精神现象学》。模型、语言、工具和历史是起点，插件在具体经验里形成并修订判断。空闲给它重新考虑的机会，它可以发起一件事，也可以安静一会儿。[设计依据](docs/PHENOMENOLOGY.md)
 
-0.4.5 的验收记录列出本次实际运行的宿主、平台、模型和语音条件。此前的真实 Breeze 合成结果归档在 0.4.3。[本版验证记录](docs/verification.json) · [0.4.3 验证档案](docs/verification-0.4.3.json)
+0.4.6 的验收记录列出本次实际运行的宿主、平台、模型和语音条件。此前的真实 Breeze 合成结果归档在 0.4.3。[本版验证记录](docs/verification.json) · [0.4.3 验证档案](docs/verification-0.4.3.json)
 
 ![打开小肥鱼后的精神通讯窗](media/screenshots/main.png)
 
@@ -29,7 +29,7 @@ dsh --profile jingshen --from-default-profile web --dump-config
 
 ### 建议：使用独立源码目录
 
-在 0.4.5 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
+在 0.4.6 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
 
 ```sh
 npm ci
@@ -50,7 +50,7 @@ node scripts/run.mjs --state-dir /绝对路径/jingshen-state -- dsh --profile j
 ### 安装已构建的包
 
 ```sh
-dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.5.tgz
+dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.6.tgz
 dsh --profile jingshen --no-open
 ```
 
@@ -58,24 +58,24 @@ dsh --profile jingshen --no-open
 
 ### 从上一版升级
 
-沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0 至 0.4.3 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.5。以下示例中的 `jingshen` 请换成你原来的 profile 名。
+沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0 至 0.4.5 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.6。以下示例中的 `jingshen` 请换成你原来的 profile 名。
 
 ```sh
 dsh plugin --profile jingshen remove dsh-jingshen
-dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.5.tgz
+dsh plugin --profile jingshen add /绝对路径/dsh-jingshen-0.4.6.tgz
 ```
 
 新安装的默认状态目录为 `~/.local/share/dsh-jingshen/`。升级会沿用已有默认目录。继续使用原先的 `stateDir`，即可接回原来的主会话和 SQLite 记录。升级时会识别历史预设。插件管理器中应只有一个“精神”，包名和当前预设标识均为 `dsh-jingshen`。
 
 ## 使用
 
-点击画幅上的小肥鱼，从右上角选择主会话模型，再在底部输入框发送消息。缩小窗口后，工作可以继续，新到达的发言计入未读。右上角的管理按钮打开事务、权限、暂停、恢复和记录。通话时小肥鱼在中央放大，麦克风、挂断和视觉仍可操作。
+点击画幅上的小肥鱼，从右上角选择主会话模型，再在底部输入框发送消息。缩小窗口后，工作可以继续，新到达的发言计入未读。右上角的管理按钮打开事务、权限、暂停、恢复和记录。点右上角电话进入通话，小肥鱼在中央放大。摄像头与屏幕共享从通话里的视觉按钮开启。开麦后会显示“等你开口”，检测到持续人声才显示“正在聆听”。说完稍停，可以看到“刚听到”的转写；环境嘈杂时，可以在语音选项调高开口阈值。
 
 本人发来的消息和空闲唤醒，都可以形成零条、一条或多条公开发言。精神可以一次讲完整件事。它选择继续时，先交付这一条，再在新的模型步骤里结合已交付内容决定要不要做事、另发一条或停下。普通草稿由同一模型复核，模型可采纳、修订、等待或保持安静。在你开的项目、你请它开的会话、它自己创建的工作会话中，只要精神参与，该次发布同样经过它。参与委派的本地原生子代理和团队成员保留各自的会话身份与消息来源。原生聊天的每条已中介答复旁显示“精神”，可以按原生消息编号查到公开决定。专用通讯窗只展示实际交付的消息和你发的话。
 
 工作时小肥鱼抱着笔记本打字。已授权的视频真正播放时才会出现玩手机的动作。它还可以自行做表情或收起表情。在完全访问下，空闲时也可以选择告诉你一件事，或自行行动而不通知。开启语音、调整音色、共享视频和连接已登录标签页的步骤见 [通话与视觉](docs/MEDIA.md)。
 
-通话默认在宿主本机转写普通话，朗读使用 Breeze 云端的「大肥鱼（迷糊版）」。点通讯窗右上角的电话图标，打开右上角语音选项，点击“配置 Breeze 密钥”，通过 Harness 凭据保存专用的 `BREEZE_API_KEY`。只有通话接通后，已交付的发言正文才会发往 Breeze 进行语音合成。文字聊天无需这把密钥。你也可以手选设备普通话声线、继续使用原先显式配置的语音服务，或安装可选的本机 PrimeTTS 声线。[通话、凭据与费用](docs/MEDIA.md) · [迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
+点电话接通后就能说普通话、英语，也可以在一句话里切换。电话会显示刚听到的原话，精神可以用中文、英语或两者混合回答。朗读默认使用 Breeze 云端的「大肥鱼（迷糊版）」。点通讯窗右上角的电话图标，打开右上角语音选项，点击“配置 Breeze 密钥”，通过 Harness 凭据保存专用的 `BREEZE_API_KEY`。只有通话接通后，已交付的发言正文才会发往 Breeze 进行语音合成。文字聊天无需这把密钥。你也可以选择设备朗读，浏览器会依文字自动切换已安装的中英文声线。原先显式配置的语音服务及可选的本机 PrimeTTS 声线仍可使用。[通话、凭据与费用](docs/MEDIA.md) · [迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
 
 面板提供两种真实权限模式：
 

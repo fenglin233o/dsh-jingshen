@@ -87,12 +87,30 @@ test('an explicit OpenAI protocol uses its distinct key and never resolves the B
     SPIRIT_TTS_PROTOCOL: 'openai', SPIRIT_TTS_API_KEY: 'only-openai' })
   try {
     const { output } = await provider.detect()
-    await (await output!.stream(text, signal())).cancel()
+    const reply = 'Nice to hear from you.'
+    await (await output!.stream({ ...text, text: reply }, signal())).cancel()
     const [url, init] = fetch.mock.calls[0]!
     expect(url).toBe('https://api.openai.com/v1/audio/speech')
     expect(new Headers(init?.headers).get('xi-api-key')).toBeNull()
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer only-openai')
+    expect(JSON.parse(String(init?.body))).toMatchObject({ input: reply, instructions: expect.stringMatching(/^Speak naturally in English\b/u) })
     expect(resolve).not.toHaveBeenCalled()
+  } finally { provider.close() }
+})
+
+test.each([
+  ['I’m here. How can I help?', 'breeze-tts-2', 'en', /soft and gentle/u],
+  ['我在听，we can start now。', 'breeze-tts-2-multilingual', undefined, /柔和.*soft and gentle/u],
+] as const)('BreezeBlue keeps the voice and original %s text while using the matching model and instructions', async (reply, model, language, direction) => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(pcm(Uint8Array.of(0, 1)))
+  const provider = new VoiceProviderDiscovery(ctx(), { BREEZE_API_KEY: 'brz_fixture_env' })
+  try {
+    const { output } = await provider.detect()
+    await (await output!.stream({ id: text.id, text: reply, tone: 'gentle' }, signal())).cancel()
+    const [url, init] = fetch.mock.lastCall!
+    expect(url).toBe(endpoint)
+    expect(JSON.parse(String(init?.body))).toEqual({ text: reply, model_id: model, ...(language !== undefined && { language_code: language }),
+      instructions: expect.stringMatching(direction) })
   } finally { provider.close() }
 })
 

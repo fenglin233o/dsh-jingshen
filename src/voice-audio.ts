@@ -6,21 +6,39 @@ export class SpeechGate {
   private utterance: Float32Array[] | null = null
   private consecutive = 0
   private quiet = 0
-  private floor = 0.004
+  private floor = 0.001
+  private calibration: number[] | undefined = []
 
-  constructor(private readonly begin: () => void, private readonly complete: (frames: Float32Array[]) => void) {}
+  constructor(private readonly begin: () => void, private readonly complete: (frames: Float32Array[]) => void,
+    private readonly calibrated?: () => void) {}
 
-  frame(frame: Float32Array, playback: boolean): void {
+  frame(frame: Float32Array, playback: boolean, voiced: boolean, thresholdDb: number): void {
     let sum = 0
     for (const sample of frame) sum += sample * sample
     const energy = Math.sqrt(sum / frame.length)
-    const audible = energy > Math.max(playback ? 0.018 : 0.011, this.floor * 3)
-    if (!audible && !this.utterance) this.floor = this.floor * 0.96 + energy * 0.04
+    // Worklet frames are 20 ms. Learn room noise from non-speech frames,
+    // including the tail of an utterance when a fan or traffic stays audible.
+    if (!voiced) this.floor += 0.04 * (energy - this.floor)
+    if (this.calibration) {
+      this.calibration.push(energy)
+      if (this.calibration.length === 12) {
+        // A newly opened microphone can deliver steady fan noise before
+        // WebRTC adapts. Estimate its level without using isolated peaks.
+        this.calibration.sort((a, b) => a - b)
+        this.floor = this.calibration[2]!
+        this.calibration = undefined
+        this.calibrated?.()
+        this.consecutive = 0
+      }
+    }
+    const margin = this.utterance ? -5 : playback ? 5 : 0
+    const minimum = 10 ** ((thresholdDb + margin) / 20)
+    const audible = voiced && energy >= Math.max(minimum, this.floor * (this.utterance ? 1.35 : 2.2))
     if (!this.utterance) {
       this.head.push(frame)
-      if (this.head.length > 8) this.head.shift()
+      if (this.head.length > 24) this.head.shift()
       this.consecutive = audible ? this.consecutive + 1 : 0
-      if (this.consecutive < 3) return
+      if (this.calibration || this.consecutive < (playback ? 9 : 6)) return
       this.utterance = this.head
       this.head = []
       this.quiet = 0
@@ -29,7 +47,7 @@ export class SpeechGate {
     }
     this.utterance.push(frame)
     this.quiet = audible ? 0 : this.quiet + 1
-    if (this.quiet < 27 && this.utterance.length < MAX_UTTERANCE_SECONDS * 50) return
+    if (this.quiet < 38 && this.utterance.length < MAX_UTTERANCE_SECONDS * 50) return
     const utterance = this.utterance
     this.utterance = null
     this.consecutive = 0

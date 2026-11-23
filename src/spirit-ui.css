@@ -401,6 +401,16 @@
   font-size: 12px;
 }
 .spirit-voice-status[data-error] { color: #934929; }
+.spirit-voice-heard, .spirit-voice-caption {
+  margin: 0;
+  max-width: 100%;
+  max-height: 3.2em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .spirit-voice-controls { display: flex; justify-content: center; gap: 10px 18px; }
 .spirit-voice-controls > button {
   display: grid;

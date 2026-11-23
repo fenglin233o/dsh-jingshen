@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { MediaIcon } from './media-icons.tsx'
 import { encodeVoiceWav, PcmPlayer, SpeechGate } from './voice-audio.ts'
-import { deviceVoice, speakOnDevice } from './voice-device.ts'
-import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceEvent } from './voice-protocol.ts'
+import { createSpeechDetector, type SpeechDetector } from './speech-detector.ts'
+import { devicePhrases, deviceVoice, speakOnDevice } from './voice-device.ts'
+import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceLanguage, type VoiceEvent } from './voice-protocol.ts'
 
-type Phase = 'checking' | 'idle' | 'connecting' | 'listening' | 'muted' | 'speaking' | 'transcribing' | 'disconnected'
+type Phase = 'checking' | 'idle' | 'connecting' | 'calibrating' | 'ready' | 'listening' | 'muted' | 'speaking' | 'transcribing' | 'disconnected'
 type OutputPreference = 'auto' | 'host' | 'system' | 'input'
 type HostOutput = NonNullable<VoiceAvailability['output']>
 type CallOutput = { kind: 'host'; info?: HostOutput } | { kind: 'system'; voice: SpeechSynthesisVoice }
@@ -17,6 +18,8 @@ export interface VoiceCallState {
   error?: string
   outputError?: string
   availability?: VoiceAvailability
+  caption?: string
+  heard?: string
   outputLabel?: string
   microphoneAvailable?: boolean
   microphoneOpening?: boolean
@@ -32,18 +35,17 @@ interface LiveCall {
   recording: boolean
   framesPending: number
   lastSequence: number
-  lastInput?: string
   pending: VoiceDelivery[]
   utterances: Promise<unknown>
   playback?: { message: VoiceDelivery; abort: AbortController }
-  microphone?: { stream: MediaStream; source: MediaStreamAudioSourceNode; node: AudioWorkletNode; sink: GainNode }
+  microphone?: { stream: MediaStream; source: MediaStreamAudioSourceNode; node: AudioWorkletNode; sink: GainNode; detector: SpeechDetector; calibrated: boolean }
   openingStream?: MediaStream
   micEpoch: number
 }
 
 const labels: Record<Phase, string> = {
   checking: '正在检查语音连接', idle: '语音未接通', connecting: '正在接通语音',
-  listening: '正在聆听', muted: '已关闭麦克风', speaking: '精神正在说话', transcribing: '正在转写',
+  calibrating: '正在适应环境声音', ready: '等你开口', listening: '正在聆听', muted: '已关闭麦克风', speaking: '精神正在说话', transcribing: '正在转写',
   disconnected: '语音连接已断开',
 }
 const initialState: VoiceCallState = { connected: false, listening: false, speaking: false, phase: 'checking', label: labels.checking }
@@ -60,6 +62,14 @@ function loadOutputPreference(): OutputPreference {
   return 'auto'
 }
 
+function loadThreshold(): number {
+  try {
+    const value = window.localStorage.getItem('personal-spirit:mic-threshold-db')
+    if (value && Number.isFinite(Number(value))) return Math.max(-54, Math.min(-24, Number(value)))
+  } catch { /* Use the default when device storage is unavailable. */ }
+  return -42
+}
+
 function expectsBreeze(availability?: VoiceAvailability): boolean {
   return availability?.setup?.kind === 'breeze-key' || availability?.output?.provider === 'breezeblue'
 }
@@ -73,9 +83,13 @@ function chooseOutput(preference: OutputPreference, neural: boolean, info: HostO
 
 function outputLabel(output?: CallOutput): string {
   if (!output) return '仅语音转写'
-  if (output.kind === 'system') return `设备中文朗读 · ${output.voice.name}`
+  if (output.kind === 'system') return `设备朗读 · ${output.voice.name}`
   const { info } = output
   return info ? `${info.name}（${info.location === 'host-local' ? '宿主本机' : '远端服务'}）` : '宿主语音合成'
+}
+
+function missingDeviceVoice(language?: VoiceLanguage): string {
+  return language ? `设备没有本机${language === 'en' ? '英语' : '普通话'}声线` : '设备没有本机普通话或英语声线'
 }
 
 class VoiceRequestError extends Error {
@@ -109,6 +123,7 @@ export async function voiceFetch(action: string, params: Record<string, string> 
 }
 
 export class VoiceTransport {
+  thresholdDb = loadThreshold()
   private state = initialState
   private call?: LiveCall
   private checkEpoch = 0
@@ -117,7 +132,7 @@ export class VoiceTransport {
 
   private update(update: Partial<VoiceCallState>, phase?: Phase): void {
     const transcriptionOnly = this.call?.input && !this.call.output
-      && (phase === 'listening' || phase === 'muted' || phase === 'transcribing')
+      && (phase === 'ready' || phase === 'listening' || phase === 'muted' || phase === 'transcribing')
     this.state = { ...this.state, ...update, ...(phase
       ? { phase, label: transcriptionOnly ? `仅语音转写 · ${labels[phase]}` : labels[phase] } : {}) }
     this.changed(this.state)
@@ -206,7 +221,11 @@ export class VoiceTransport {
       this.hangup(event.reason)
     } else if (event.type === 'speech') {
       call.lastSequence = Math.max(event.message.sequence, call.lastSequence)
-      if (!call.output) { this.media(call, event.message, 'end'); return }
+      if (!call.output) {
+        this.update({ caption: event.message.text })
+        this.media(call, event.message, 'end')
+        return
+      }
       call.pending.push(event.message)
       void this.speakNext(call)
     }
@@ -220,9 +239,12 @@ export class VoiceTransport {
     if (this.call !== call || call.playback || call.recording) return
     const message = call.pending.shift()
     if (!message) return
+    this.update({ caption: message.text })
     const playback = { message, abort: new AbortController() }
     call.playback = playback
     const signal = AbortSignal.any([call.abort.signal, playback.abort.signal])
+    const output = call.output
+    const host = output?.kind === 'host' ? output.info : undefined
     let started = false
     let retryOnDevice = false
     const start = () => {
@@ -232,8 +254,17 @@ export class VoiceTransport {
       this.media(call, message, 'start')
     }
     try {
-      if (call.output?.kind === 'system') await speakOnDevice(message, call.output.voice, signal, start)
-      else if (call.output?.kind === 'host') {
+      if (output?.kind === 'system') {
+        const missing = new Set<VoiceLanguage | undefined>()
+        for (const phrase of devicePhrases(message.text)) {
+          signal.throwIfAborted()
+          const voice = deviceVoice(phrase.language)
+          if (!voice) { missing.add(phrase.language); continue }
+          this.update({ outputLabel: outputLabel({ kind: 'system', voice }) })
+          await speakOnDevice({ ...message, text: phrase.text }, voice, signal, start)
+        }
+        if (missing.size && !signal.aborted) this.update({ outputError: [...missing].map(missingDeviceVoice).join('。') })
+      } else if (output?.kind === 'host') {
         const response = await voiceFetch('speech', { call: call.id!, message: message.id }, { signal })
         if (!response.body || response.headers.get('x-spirit-pcm-rate') !== String(PLAY_RATE)) throw new Error('无效的语音播放数据')
         await call.player.stream(response.body, signal, start)
@@ -241,13 +272,19 @@ export class VoiceTransport {
     } catch (error) {
       if (call.playback === playback) call.player.stop()
       if (!signal.aborted && this.call === call) {
-        const host = call.output?.kind === 'host' ? call.output.info : undefined
-        const voice = !started && host?.provider !== 'breezeblue' && call.preference === 'auto'
-          && call.output?.kind === 'host' ? deviceVoice() : undefined
+        let voice: SpeechSynthesisVoice | undefined
+        if (!started && host?.provider !== 'breezeblue' && call.preference === 'auto' && output?.kind === 'host') {
+          for (const phrase of devicePhrases(message.text)) {
+            voice = deviceVoice(phrase.language)
+            if (voice) break
+          }
+        }
         if (host?.provider === 'breezeblue') {
           const failure = breezeError(error)
           if (failure.pause) {
             call.output = undefined
+            const latest = call.pending.at(-1)
+            if (latest) this.update({ caption: latest.text })
             for (const waiting of call.pending) this.media(call, waiting, 'end')
             call.pending = []
             if (call.input) this.update({ outputLabel: outputLabel(), outputError: failure.message })
@@ -274,14 +311,17 @@ export class VoiceTransport {
 
   private restingPhase(call: LiveCall): Phase {
     if (this.state.speaking && call.playback) return 'speaking'
+    if (call.recording) return 'listening'
     if (call.framesPending) return 'transcribing'
-    return call.microphone ? 'listening' : 'muted'
+    if (!call.microphone) return 'muted'
+    return call.microphone.calibrated ? 'ready' : 'calibrating'
   }
 
   private bargeIn(call: LiveCall): void {
     if (this.call !== call) return
     call.recording = true
-    this.interruptPlayback(call)
+    if (this.state.speaking && call.playback) this.interruptPlayback(call)
+    else this.update({ error: undefined }, 'listening')
   }
 
   interrupt(): void {
@@ -295,7 +335,7 @@ export class VoiceTransport {
     this.stopPlayback(call)
     this.update({ speaking: false }, this.restingPhase(call))
     void voiceFetch('interrupt', { call: call.id!, through: String(call.lastSequence),
-      ...(call.lastInput ? { input: call.lastInput } : {}), ...(reading ? { reading } : {}),
+      ...(reading ? { reading } : {}),
     }, { method: 'POST', signal: call.abort.signal }).catch(() => {})
   }
 
@@ -315,10 +355,13 @@ export class VoiceTransport {
     this.update({ error: undefined }, 'transcribing')
     call.utterances = call.utterances.then(async () => {
       if (call.abort.signal.aborted) return
-      call.lastInput = id
-      await voiceFetch('audio', { call: call.id!, request: id }, {
+      const response = await voiceFetch('audio', { call: call.id!, request: id }, {
         method: 'POST', signal: call.abort.signal, headers: { 'content-type': 'audio/wav' }, body: audio,
       })
+      const result = await response.json() as { text: string }
+      if (this.call === call) this.update(result.text
+        ? { heard: result.text, error: undefined }
+        : { heard: undefined, error: '没听清这句话，请再说一次。' })
     }).catch(error => {
       if (this.call === call) this.update({ error: error instanceof Error ? error.message : '语音转写失败' })
     }).finally(() => {
@@ -335,33 +378,46 @@ export class VoiceTransport {
     if (!call?.input || call.microphone || this.state.microphoneOpening) return
     const epoch = ++call.micEpoch
     this.update({ microphoneOpening: true, error: undefined })
+    let detector: SpeechDetector | undefined
     let stream: MediaStream | undefined
     try {
       if (!navigator.mediaDevices?.getUserMedia || !call.context.audioWorklet) throw new Error('当前浏览器不支持此页面的麦克风录音')
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false } })
       if (this.call !== call || call.micEpoch !== epoch) { stream.getTracks().forEach(track => track.stop()); return }
       call.openingStream = stream
       await loadMicWorklet(call)
       if (this.call !== call || call.micEpoch !== epoch) return
+      detector = await createSpeechDetector().catch(() => {
+        throw new Error('人声检测未能加载，请重新开麦')
+      })
+      if (this.call !== call || call.micEpoch !== epoch) { detector.close(); return }
+      const vad = detector
       const source = call.context.createMediaStreamSource(stream)
       const node = new AudioWorkletNode(call.context, 'spirit-mic'), sink = call.context.createGain()
       sink.gain.value = 0
-      const gate = new SpeechGate(() => this.bargeIn(call), frames => this.sendFrames(call, frames))
+      const mic = { stream, source, node, sink, detector, calibrated: false }
+      const gate = new SpeechGate(() => this.bargeIn(call), frames => this.sendFrames(call, frames), () => {
+        mic.calibrated = true
+        this.update({}, this.restingPhase(call))
+      })
       node.port.onmessage = (event: MessageEvent<Float32Array>) => {
-        if (this.call === call && call.micEpoch === epoch) gate.frame(event.data, this.state.speaking)
+        if (this.call === call && call.micEpoch === epoch) gate.frame(event.data, this.state.speaking, vad.voiced(event.data), this.thresholdDb)
       }
       source.connect(node); node.connect(sink); sink.connect(call.context.destination)
-      call.microphone = { stream, source, node, sink }
+      call.microphone = mic
+      detector = undefined
       call.openingStream = undefined
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => {
         if (this.call === call && call.micEpoch === epoch) { this.mute(); this.update({ error: '麦克风已断开' }) }
       }, { once: true })
       this.update({ listening: true, microphoneOpening: false, error: undefined }, this.restingPhase(call))
     } catch (error) {
+      detector?.close()
       if (this.call === call && call.micEpoch === epoch) {
         call.openingStream = undefined
         stream?.getTracks().forEach(track => track.stop())
-        const reason = error instanceof DOMException && error.name === 'NotAllowedError' ? '未获得麦克风权限' : '无法打开麦克风'
+        const reason = error instanceof DOMException && error.name === 'NotAllowedError' ? '未获得麦克风权限'
+          : error instanceof Error && error.message === '人声检测未能加载，请重新开麦' ? error.message : '无法打开麦克风'
         this.update({ listening: false, microphoneOpening: false, error: reason }, this.restingPhase(call))
       }
     }
@@ -377,6 +433,7 @@ export class VoiceTransport {
     if (!mic) return
     mic.node.port.onmessage = null
     mic.node.port.close()
+    mic.detector.close()
     mic.source.disconnect(); mic.node.disconnect(); mic.sink.disconnect()
     mic.stream.getTracks().forEach(track => track.stop())
   }
@@ -404,7 +461,7 @@ export class VoiceTransport {
     this.sendHangup(call)
     void call.context.close().catch(() => {})
     this.update({ connected: false, listening: false, speaking: false, error: reason, outputError: undefined, outputLabel: undefined,
-      microphoneAvailable: undefined, microphoneOpening: undefined }, reason ? 'disconnected' : 'idle')
+      heard: undefined, caption: undefined, microphoneAvailable: undefined, microphoneOpening: undefined }, reason ? 'disconnected' : 'idle')
   }
 }
 
@@ -506,6 +563,7 @@ export function VoiceCall({ active = true, optionsOpen = false, optionsId, onCal
   const [state, setState] = useState(initialState)
   const [transport] = useState(() => new VoiceTransport(setState))
   const [preference, setPreference] = useState(loadOutputPreference)
+  const [threshold, setThreshold] = useState(transport.thresholdDb)
   const [systemVoice, setSystemVoice] = useState<SpeechSynthesisVoice>()
   useEffect(() => {
     const update = () => setSystemVoice(deviceVoice())
@@ -535,6 +593,7 @@ export function VoiceCall({ active = true, optionsOpen = false, optionsId, onCal
   const breeze = expectsBreeze(availability)
   const missingKey = availability?.setup?.kind === 'breeze-key'
   const selected = chooseOutput(preference, !!hostOutput, hostOutput, systemVoice, breeze)
+  const noDeviceVoice = missingDeviceVoice()
   const transcriptionOnly = !selected && (preference === 'auto' || preference === 'input') && !!availability?.input
   const canConnect = active && !!availability?.active && (!!selected || transcriptionOnly)
   const sample = selected?.kind === 'host' && hostOutput?.provider !== 'breezeblue'
@@ -544,12 +603,14 @@ export function VoiceCall({ active = true, optionsOpen = false, optionsId, onCal
     : undefined
   const error = [state.outputError, state.error].filter(Boolean).join(' ')
   const idle = !connected && state.phase !== 'connecting' && active
-  const showBreezeSetup = breeze && (idle || connected && !!state.outputError)
+  const showBreezeSetup = breeze && (idle || connected && preference !== 'system' && !!state.outputError)
   const micOn = state.listening || state.microphoneOpening
   return <div className="spirit-voice">
     <p className="spirit-voice-status" data-error={!!error || undefined} role="status">
       {error || (!active ? '当前无法通话' : state.microphoneOpening && !state.speaking ? '正在打开麦克风' : state.label)}
     </p>
+    {connected && state.heard && <p className="spirit-voice-heard" title={state.heard}>刚听到：{state.heard}</p>}
+    {connected && state.caption && <p className="spirit-voice-caption" aria-live="polite">精神：{state.caption}</p>}
     <div className="spirit-voice-controls">
       {connected || state.phase === 'connecting'
         ? <>
@@ -574,20 +635,27 @@ export function VoiceCall({ active = true, optionsOpen = false, optionsId, onCal
           {sample && <VoiceSample key={sample} src={`/personal-spirit/assets/voice/${sample}`} />}
         </div>}
         {(idle || connected) && availability && <div className="spirit-voice-providers">
-          <label>通话输出 <select value={preference} disabled={connected} onChange={event => {
+          {availability.input && <label>开口阈值 <input type="range" min="-54" max="-24" step="1" value={threshold}
+            aria-label="开口阈值" aria-valuetext={threshold + ' dBFS'} onChange={event => {
+              const value = Number(event.target.value)
+              transport.thresholdDb = value
+              setThreshold(value)
+              try { window.localStorage.setItem('personal-spirit:mic-threshold-db', String(value)) } catch { /* Applies to this call. */ }
+            }} /> {threshold} dBFS（调高可减少误触）</label>}
+          <label>通话输出 <select aria-label="通话输出" value={preference} disabled={connected} onChange={event => {
             const value = event.target.value as OutputPreference
             setPreference(value)
             try { window.localStorage.setItem(preferenceKey, value) } catch { /* Preferences still apply to the current view. */ }
           }}>
             <option value="auto">自动选择</option>
             <option value="host" disabled={!hostOutput && preference !== 'host'}>宿主语音合成</option>
-            <option value="system" disabled={!systemVoice && preference !== 'system'}>设备中文朗读</option>
+            <option value="system" disabled={!systemVoice && preference !== 'system'}>设备朗读</option>
             <option value="input" disabled={!availability.input && preference !== 'input'}>仅语音转写</option>
           </select></label>
           {idle && (selected ? <span>通话声线 · {outputLabel(selected)}</span>
-            : <span>{transcriptionOnly ? '仅语音转写' : preference === 'system' ? '设备没有本机普通话声线'
+            : <span>{transcriptionOnly ? '仅语音转写' : preference === 'system' ? noDeviceVoice
               : missingKey ? 'BreezeBlue 朗读未配置' : preference === 'host' ? '宿主语音合成未配置' : '当前没有可用的通话语音'}</span>)}
-          {idle && !systemVoice && preference !== 'system' && !breeze && <span>设备没有本机普通话声线</span>}
+          {idle && !systemVoice && preference !== 'system' && !breeze && <span>{noDeviceVoice}</span>}
           {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '宿主本机' : '远端服务'}）</span>
             : <span>未配置语音转写</span>}
         </div>}

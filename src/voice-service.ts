@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import { BUNDLED_VOICE_MODEL, MAX_WAV_BYTES, RECORD_RATE, type VoiceAvailability, type VoiceDelivery, type VoiceEvent, type VoiceMessage } from './voice-protocol.ts'
+import { BUNDLED_VOICE_MODEL, MAX_WAV_BYTES, RECORD_RATE, speechLanguage, type VoiceAvailability, type VoiceDelivery, type VoiceEvent, type VoiceMessage } from './voice-protocol.ts'
 import { VoiceProviderDiscovery, type VoiceProviders } from './voice-providers.ts'
 import type { VoiceCut, VoiceSource } from './voice-native.ts'
 
@@ -263,8 +263,10 @@ export class VoiceService {
       const text = (await call.providers.input.transcribe(audio, signal)).trim()
       signal.throwIfAborted()
       this.requireActive()
+      if (/<unk>/iu.test(text)) return { text: '' }
       const transcript = text.slice(0, 8_000)
-      if (transcript) await this.options.submit({ requestId: `voice:${requestId}`, text: transcript }, signal, messageId => {
+      if (!/[\p{L}\p{N}]/u.test(transcript)) return { text: '' }
+      await this.options.submit({ requestId: `voice:${requestId}`, text: transcript }, signal, messageId => {
         if (signal.aborted) return
         call.inputs.set(requestId, messageId)
         const oldest = call.inputs.keys().next()
@@ -286,6 +288,7 @@ export class VoiceService {
     caller.throwIfAborted()
     const message = this.message(call, messageId)
     const { info } = call.providers.output
+    const language = speechLanguage(message.text)
     if (info.provider === 'breezeblue') {
       // Claim before touching any existing playback. Concurrent reads must issue only one billable request.
       if (message.breezeRequested) throw new Error('本次通话已经请求过这条回复的语音')
@@ -302,7 +305,7 @@ export class VoiceService {
       for (const text of chunks) {
         signal.throwIfAborted()
         this.requireActive()
-        const stream = await call.providers.output.stream({ id: message.id, text, tone: message.tone }, signal)
+        const stream = await call.providers.output.stream({ id: message.id, text, tone: message.tone }, signal, language)
         const reader = stream.getReader()
         try {
           for (;;) {

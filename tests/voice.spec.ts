@@ -43,7 +43,7 @@ test('default speech waits for its BreezeBlue key, while explicitly selected loc
   const { input, output, setup } = await defaultPhone.detect()
   expect(output).toBeNull()
   expect(setup).toEqual({ kind: 'breeze-key' })
-  expect(input?.info).toEqual({ name: '随包普通话识别', location: 'host-local' })
+  expect(input?.info).toEqual({ name: '随包中英语音识别', location: 'host-local' })
   const bundled = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_MODEL: 'jingshen-light' })
   expect((await bundled.detect()).output?.info).toMatchObject({ model: 'jingshen-light', voice: 'xiaoyu', location: 'host-local' })
   expect(fetch).not.toHaveBeenCalled()
@@ -74,7 +74,7 @@ test('local recognition pins its chosen provider and keeps a cloud registry sele
   const selection = { providerId: 'local', language: 'zh' }
   const registry = {
     snapshot: () => ({ selection, providers: [
-      { id: 'local', name: 'Local ASR', location: 'host-local', preparation: { phase: 'ready' } },
+      { id: 'local', name: 'Local ASR', languages: ['auto', 'zh', 'en'], location: 'host-local', preparation: { phase: 'ready' } },
       { id: 'remote', name: 'Remote ASR', location: 'cloud', preparation: { phase: 'ready' } },
     ] }),
     resolve: vi.fn((input: unknown) => input),
@@ -87,8 +87,8 @@ test('local recognition pins its chosen provider and keeps a cloud registry sele
     selection.providerId = 'remote'
     const wav = recording()
     await expect(local.transcribe(wav, signal())).resolves.toBe('你好')
-    expect(registry.resolve).toHaveBeenCalledWith({ audio: wav, providerId: 'local' })
-    expect((await provider.detect()).input?.info).toEqual({ name: '随包普通话识别', location: 'host-local' })
+    expect(registry.resolve).toHaveBeenCalledWith({ audio: wav, providerId: 'local', language: 'auto' })
+    expect((await provider.detect()).input?.info).toEqual({ name: '随包中英语音识别', location: 'host-local' })
     expect(fetch).not.toHaveBeenCalled()
   } finally { provider.close() }
 })
@@ -218,16 +218,32 @@ test('the character reads interjections with the next phrase and preserves every
 test('microphone onset interrupts before a complete recording and keeps the leading speech', () => {
   const begin = vi.fn(), complete = vi.fn<(frames: Float32Array[]) => void>()
   const gate = new SpeechGate(begin, complete)
-  for (let index = 0; index < 5; index++) gate.frame(silence(), true)
-  for (let index = 0; index < 3; index++) gate.frame(speech(), true)
+  for (let index = 0; index < 14; index++) gate.frame(silence(), true, false, -42)
+  for (let index = 0; index < 9; index++) gate.frame(speech(), true, true, -42)
   expect(begin).toHaveBeenCalledTimes(1)
   expect(complete).not.toHaveBeenCalled()
-  for (let index = 0; index < 27; index++) gate.frame(silence(), false)
+  for (let index = 0; index < 38; index++) gate.frame(silence(), false, false, -42)
   const frames = complete.mock.calls[0]![0]
   const wav = new Uint8Array(encodeVoiceWav(frames, 16_000))
-  expect(frames[5]?.[0]).toBeCloseTo(0.1)
+  expect(frames[14]?.[0]).toBeCloseTo(0.1)
   expect(() => validateVoiceWav(wav)).not.toThrow()
   expect(() => validateVoiceWav(wav.subarray(0, 45))).toThrow()
+})
+
+test('the opening threshold is adjustable and a brief pause keeps the same utterance', () => {
+  const begin = vi.fn(), complete = vi.fn()
+  const gate = new SpeechGate(begin, complete)
+  for (let i = 0; i < 12; i++) gate.frame(silence(), false, false, -42)
+  const quietSpeech = new Float32Array(320).fill(0.009)
+  for (let i = 0; i < 40; i++) gate.frame(quietSpeech, false, true, -35)
+  expect(begin).not.toHaveBeenCalled()
+  for (let i = 0; i < 20; i++) gate.frame(quietSpeech, false, true, -48)
+  for (let i = 0; i < 32; i++) gate.frame(silence(), false, false, -48)
+  for (let i = 0; i < 20; i++) gate.frame(quietSpeech, false, true, -48)
+  expect(begin).toHaveBeenCalledOnce()
+  expect(complete).not.toHaveBeenCalled()
+  for (let i = 0; i < 38; i++) gate.frame(silence(), false, false, -48)
+  expect(complete).toHaveBeenCalledOnce()
 })
 
 test('only delivered text reaches synthesis and cutting the playback preserves the subsequent owner input', async () => {
@@ -236,7 +252,7 @@ test('only delivered text reaches synthesis and cutting the playback preserves t
   vi.stubEnv('SPIRIT_TTS_MODEL', 'gpt-4o-mini-tts')
   vi.stubEnv('SPIRIT_ASR_BASE_URL', undefined)
   const ctx = { get: (name: string) => name === 'speechToText' ? {
-    snapshot: () => ({ selection: { providerId: 'native' }, providers: [{ id: 'native', name: 'SenseVoice', location: 'host-local', preparation: { phase: 'standby' } }] }),
+    snapshot: () => ({ selection: { providerId: 'native' }, providers: [{ id: 'native', name: 'SenseVoice', languages: ['auto', 'en', 'zh'], location: 'host-local', preparation: { phase: 'standby' } }] }),
     resolve: (value: unknown) => value,
     transcribe: () => Promise.resolve({ text: '我想谈另一件事' }),
   } : undefined } as Context

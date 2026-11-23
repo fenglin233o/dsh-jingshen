@@ -1,4 +1,4 @@
-import type { VoiceMessage } from './voice-protocol.ts'
+import type { VoiceLanguage, VoiceMessage } from './voice-protocol.ts'
 
 function mandarinRank(language: string): number {
   const tag = language.toLowerCase().replaceAll('_', '-')
@@ -7,12 +7,12 @@ function mandarinRank(language: string): number {
   return 0
 }
 
-export function localMandarinVoice(voices: readonly SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
+export function localVoice(voices: readonly SpeechSynthesisVoice[], language: VoiceLanguage): SpeechSynthesisVoice | undefined {
   let best: SpeechSynthesisVoice | undefined
   let priority = 0
   for (const voice of voices) {
     if (voice.localService !== true) continue
-    const rank = mandarinRank(voice.lang)
+    const rank = language === 'zh' ? mandarinRank(voice.lang) : Number(/^en(?:[-_]|$)/iu.test(voice.lang))
     if (!rank) continue
     const candidate = rank * 2 + Number(voice.default)
     if (candidate > priority) { best = voice; priority = candidate }
@@ -20,17 +20,32 @@ export function localMandarinVoice(voices: readonly SpeechSynthesisVoice[]): Spe
   return best
 }
 
-export function deviceVoice(): SpeechSynthesisVoice | undefined {
+export function deviceVoice(language?: VoiceLanguage): SpeechSynthesisVoice | undefined {
   if (typeof window.SpeechSynthesisUtterance !== 'function') return
-  return localMandarinVoice(window.speechSynthesis?.getVoices() ?? [])
+  const voices = window.speechSynthesis?.getVoices() ?? []
+  return language ? localVoice(voices, language) : localVoice(voices, 'zh') ?? localVoice(voices, 'en')
+}
+
+export function* devicePhrases(text: string): Iterable<{ text: string; language?: VoiceLanguage }> {
+  let language: VoiceLanguage | undefined
+  let start = 0
+  for (const match of text.matchAll(/\p{Script=Han}+|\p{Script=Latin}+/gu)) {
+    const next = /\p{Script=Han}/u.test(match[0]) ? 'zh' : 'en'
+    if (language && language !== next) {
+      yield { text: text.slice(start, match.index), language }
+      start = match.index
+    }
+    language = next
+  }
+  if (start < text.length) yield { text: text.slice(start), language }
 }
 
 export async function speakOnDevice(message: VoiceMessage, voice: SpeechSynthesisVoice, signal: AbortSignal, started: () => void): Promise<void> {
   signal.throwIfAborted()
   const synth = window.speechSynthesis
-  const selected = synth?.getVoices().find(candidate => candidate.localService === true && mandarinRank(candidate.lang)
+  const selected = synth?.getVoices().find(candidate => candidate.localService === true
     && candidate.voiceURI === voice.voiceURI && candidate.lang === voice.lang)
-  if (!selected) throw new Error('设备中文声线已不可用')
+  if (!selected) throw new Error('设备本机声线已不可用')
   await new Promise<void>((resolve, reject) => {
     const speech = new SpeechSynthesisUtterance(message.text)
     speech.lang = selected.lang
@@ -58,7 +73,7 @@ export async function speakOnDevice(message: VoiceMessage, voice: SpeechSynthesi
       started()
     }
     speech.onend = () => finish()
-    speech.onerror = () => finish(new Error('设备中文朗读失败'))
+    speech.onerror = () => finish(new Error('设备朗读失败'))
     signal.addEventListener('abort', abort, { once: true })
     try { synth.speak(speech) } catch (error) { finish(error) }
   })

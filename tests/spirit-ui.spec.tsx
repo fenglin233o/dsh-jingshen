@@ -4,8 +4,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SpiritWindow, type SpiritMessage, type SpiritWindowProps } from '../src/spirit-ui.tsx'
 
-vi.mock('../src/vision-client.tsx', () => ({ VisionControls: () => null }))
-
 const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 globals.IS_REACT_ACT_ENVIRONMENT = true
 const roots: Root[] = []
@@ -82,7 +80,7 @@ it('会话失去授权会清除已显示的记录，并停用输入', async () =
   expect(view.element.querySelector('textarea')?.disabled).toBe(true)
 })
 
-it('从通讯标题栏进入通话，在通话标题栏查看语音选项', async () => {
+it('只在通话标题栏显示视觉入口，并可在视觉和语音选项间切换', async () => {
   const requests = vi.fn(async (path: string) => path.endsWith('/voice/status')
     ? response({ active: true, input: { name: '本机转写', location: 'host-local' }, output: null })
     : response(page([])))
@@ -92,16 +90,24 @@ it('从通讯标题栏进入通话，在通话标题栏查看语音选项', asyn
   const footer = view.element.querySelector('.jingshen-footer')
   expect(footer?.querySelector('textarea')).toBeTruthy()
   expect(footer?.querySelector('.spirit-voice')).toBeNull()
+  expect(view.element.querySelector('button[aria-label="视觉"]')).toBeNull()
+  expect(view.element.querySelector('.spirit-vision-controls fieldset')).toBeNull()
   expect(requests.mock.calls.some(([path]) => path.endsWith('/voice/status'))).toBe(false)
   await view.click('语音通话')
   expect(view.element.querySelector('.jingshen-window[data-phone] .jingshen-call-orbit .spirit-fish')).toBeTruthy()
   expect(view.element.querySelector('.jingshen-footer')).toBeNull()
   expect(view.element.querySelector('.spirit-voice-options')?.hasAttribute('hidden')).toBe(true)
+  await view.click('视觉')
+  expect(view.element.querySelector('.spirit-vision-controls')?.hasAttribute('hidden')).toBe(false)
+  expect(view.element.querySelector('.spirit-vision-controls input[type="file"]')).toBeTruthy()
   await view.click('语音选项')
+  expect(view.element.querySelector('.spirit-vision-controls')?.hasAttribute('hidden')).toBe(true)
   expect(view.element.querySelector('.spirit-voice-options')?.hasAttribute('hidden')).toBe(false)
   expect(view.element.querySelector('.spirit-voice-options select')).toBeTruthy()
   await view.click('返回通讯')
   expect(view.element.querySelector('.jingshen-footer textarea')).toBeTruthy()
+  expect(view.element.querySelector('button[aria-label="视觉"]')).toBeNull()
+  expect(view.element.querySelector('.spirit-vision-controls fieldset')).toBeNull()
   expect(document.activeElement?.getAttribute('aria-label')).toBe('语音通话')
 })
 
