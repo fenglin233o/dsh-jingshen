@@ -1,0 +1,260 @@
+{
+  "date": "2026-11-23",
+  "package": "dsh-jingshen",
+  "version": "0.4.3",
+  "author": "fenglin",
+  "sourceCommit": "c2820dc398a71b0d999ff159506dc8d7147495d4",
+  "branch": "main",
+  "harness": "0.2.2-rc.5",
+  "platform": "Linux x86_64",
+  "node": "24.22.3",
+  "browser": "Chromium 156.0.8078.79 built on Debian GNU/Linux 13 (trixie)",
+  "artifacts": [
+    {
+      "file": "dsh-jingshen-0.4.3.tgz",
+      "bytes": 32427369,
+      "sha256": "d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b",
+      "unpackedBytes": 42601353,
+      "regularFiles": 227
+    },
+    {
+      "file": "dsh-jingshen-0.4.3-source.zip",
+      "bytes": 45070602,
+      "sha256": "ac8fc6f5b31cb9e202cd29b35483658a01edd73d4287dc7a1bc9b754ba6876c0",
+      "unpackedBytes": 64689499,
+      "regularFiles": 260
+    },
+    {
+      "file": "dsh-jingshen-0.4.3-local-voice-assets.tgz",
+      "bytes": 12249829,
+      "sha256": "36179ce372758d63e32ca70a5644deccebed45a3876590e294d349adf297b0b5",
+      "unpackedBytes": 21879121,
+      "regularFiles": 17
+    }
+  ],
+  "distribution": {
+    "everyRegularFileOfBothTarballsMatchesSourceZip": true,
+    "standardAndOptionalFilesDisjoint": true,
+    "optionalVoiceAssetsMatchPreviousRelease": true,
+    "mandarinAsrMatchesPreviousRelease": true,
+    "runtimeDependencyGraphMatchesPreviousRelease": true,
+    "previousStandardPackageBytes": 44653996
+  },
+  "build": {
+    "freshOfflineInstall": "npm ci --offline --ignore-scripts",
+    "typesPassed": true,
+    "buildPassed": true,
+    "independentCleanBuildMatchesDistributedLibByteForByte": true,
+    "testFiles": 24,
+    "testsPassed": 253,
+    "testsFailed": 0
+  },
+  "changesFromPrevious043Candidate": {
+    "gitPaths": [
+      "M\tREADME.md",
+      "M\tdocs/IMPLEMENTATION.md",
+      "M\tdocs/MEDIA.md",
+      "M\tdocs/verification.json",
+      "M\tmarketplace/RELEASE-VALIDATION.md",
+      "M\tmarketplace/release-notes.md"
+    ],
+    "standardPayloadPaths": [
+      "README.md",
+      "docs/IMPLEMENTATION.md",
+      "docs/MEDIA.md",
+      "docs/verification.json",
+      "marketplace/RELEASE-VALIDATION.md"
+    ]
+  },
+  "rc5PackageRuns": [
+    {
+      "case": "controlled-fresh-package-install",
+      "checksPassed": 11,
+      "checks": [
+        "fresh official Web template installs the exact local tarball into its own profile",
+        "standard archived package retains byte-exact ASR, excludes ONNX TTS and uses the host Sherpa runtime",
+        "official browser shows a single floating fish, with the single active Spirit preset",
+        "three bundled transparent atlases are byte-exact over HTTP and support HEAD and revalidation",
+        "voice metadata, audio reference, script and preview survive real tarball installation and HTTP",
+        "official browser describes cloud credential setup and still offers local transcription",
+        "browser chat sends one owner message and one authorized reply in the same native turn",
+        "an explicitly published project message shows its source, and clicking opens the private native source session",
+        "reload keeps the same hidden main session, deduplicated chat and ordinary project membership",
+        "packaged ASR submits real Mandarin audio with no configured synthesis",
+        "restored asset overlay uses one installed plugin and plays real local speech"
+      ],
+      "packageSha256": "d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b",
+      "pageErrors": [],
+      "networkInterfaces": [
+        "lo"
+      ],
+      "liveModelRequests": 0
+    },
+    {
+      "case": "controlled-cli-package-upgrade",
+      "checksPassed": 13,
+      "checks": [
+        "official CLI installs 0.4.2 and writes a real native conversation before replacement",
+        "official CLI replaces the prior package in the same profile",
+        "standard archived package retains byte-exact ASR, excludes ONNX TTS and uses the host Sherpa runtime",
+        "upgrade retains the explicit owner permission and the same native permission preset",
+        "0.4.3 preserves the old native main id, directory and chat cursor and mounts only one plugin",
+        "official browser shows a single floating fish, with the single active Spirit preset",
+        "three bundled transparent atlases are byte-exact over HTTP and support HEAD and revalidation",
+        "voice metadata, audio reference, script and preview survive real tarball installation and HTTP",
+        "official browser describes cloud credential setup and still offers local transcription",
+        "browser chat sends one owner message and one authorized reply in the same native turn",
+        "an explicitly published project message shows its source, and clicking opens the private native source session",
+        "reload keeps the same hidden main session, deduplicated chat and ordinary project membership",
+        "packaged ASR submits real Mandarin audio with no configured synthesis"
+      ],
+      "packageSha256": "d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b",
+      "pageErrors": [],
+      "networkInterfaces": [
+        "lo"
+      ],
+      "liveModelRequests": 0
+    }
+  ],
+  "priorProtocolFixture": {
+    "sourceCommit": "b4991d74037e3ec35fa8fa33f79a6835c6da40ee",
+    "packageSha256": "50212e34efef38f5c659bf35fe300d88d246125127bea4a743507317674570bd",
+    "credentials": {
+      "passwordInputUsed": true,
+      "nativeCredentialFile": true,
+      "storeOwnerAccessOnly": true,
+      "secretAbsentFromStorageChatAndStatus": true,
+      "recognizedAfterHarnessRestart": true,
+      "unprivilegedPeerDeniedInNativeRpcSmoke": true,
+      "rotationAndUnset": [
+        "missing",
+        "stored",
+        "rotated",
+        "missing"
+      ]
+    },
+    "callIntegration": {
+      "topology": "Linux unshare user+net namespace, only loopback enabled; no real API requests",
+      "synthesisFixture": "Only the exact official Breeze URL intercepted in-host. Audio is earlier bundled 0.4.2 PCM; timings measure the fixture transport and browser, not actual Breeze.",
+      "noKey": {
+        "keySetupVisible": true,
+        "normalTextChatWorked": true,
+        "upstreamSynthesisRequests": 0,
+        "actualLocalAsr": "先等一下我想说另一件事"
+      },
+      "configuredVoice": {
+        "name": "大肥鱼·迷糊版",
+        "provider": "breezeblue",
+        "model": "breeze-tts-2",
+        "voice": "voc_8yud7hz7c9q2",
+        "location": "cloud"
+      },
+      "publicDeliveryObservedBeforeTTS": true,
+      "requestContainedOnlyDeliveredTextAndTTSSettings": true,
+      "testedProviderRequests": 4,
+      "skipProviderHistoryFlagSent": "enable_logging=false",
+      "browserPlaybackProtocolFixtureOnly": {
+        "browserFirstScheduledAfterDeliveryMs": 90.3,
+        "upstreamEndAfterDeliveryMs": 474,
+        "actualBrowserReadChunks": 8,
+        "pcmRate": 24000,
+        "fullPCMByteIdenticalToFixture": true
+      },
+      "successfulReplyReplay": {
+        "status": 400,
+        "bytes": 60,
+        "newUpstreamRequests": 0
+      },
+      "temporaryProviderError": {
+        "fixtureUpstreamStatus": 503,
+        "browserStatus": 400,
+        "automaticUpstreamRequests": 1,
+        "manualSameMessageReplay": {
+          "status": 400,
+          "bytes": 60
+        },
+        "manualNewUpstreamRequests": 0
+      },
+      "extraRequestsAfterReconnect": 0,
+      "bargeIn": {
+        "startedAfterPublicDelivery": true,
+        "cutMsFromCaptureStart": 470.88,
+        "nativeExactTurnAborted": true,
+        "separateProjectUnaffected": true,
+        "uncancelledDraftStayedPrivate": true,
+        "localAsrTranscript": "先等一下我想说令一件事",
+        "micTracksAfterHangup": [
+          "ended"
+        ],
+        "audioBuffersStopped": 7,
+        "upstreamFixtureCancelled": true
+      }
+    }
+  },
+  "liveBreezeSynthesis": {
+    "scope": "Direct authenticated synthesis using the 0.4.3 streamBreeze adapter for one audition and six film clips.",
+    "service": "Breeze Blue production",
+    "voiceId": "voc_8yud7hz7c9q2",
+    "format": "raw signed PCM16 LE, 24 kHz mono",
+    "method": "Monotonic time from adapter invocation to first nonempty response-body chunk and response EOF. Browser playback latency is separate.",
+    "requestsSucceeded": 7,
+    "samples": [
+      {
+        "id": "00-sample",
+        "seconds": 3.92,
+        "firstMs": 921,
+        "completeMs": 2499
+      },
+      {
+        "id": "01-hello",
+        "seconds": 6.96,
+        "firstMs": 503,
+        "completeMs": 2845
+      },
+      {
+        "id": "02-plan",
+        "seconds": 9.76,
+        "firstMs": 354,
+        "completeMs": 3155
+      },
+      {
+        "id": "03-change",
+        "seconds": 7.68,
+        "firstMs": 512,
+        "completeMs": 2939
+      },
+      {
+        "id": "04-mediation",
+        "seconds": 8.64,
+        "firstMs": 572,
+        "completeMs": 3371
+      },
+      {
+        "id": "05-autonomy",
+        "seconds": 8.24,
+        "firstMs": 451,
+        "completeMs": 3209
+      },
+      {
+        "id": "06-call",
+        "seconds": 10.72,
+        "firstMs": 459,
+        "completeMs": 3967
+      }
+    ],
+    "accountBillingVerified": false,
+    "browserRoundTripLatencyMeasured": false
+  },
+  "publishedResources": {
+    "voice": "https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2",
+    "keys": "https://breezeblue.ai/zh/app/developer/api-keys",
+    "api": "https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech",
+    "audio": "https://docs.breezeblue.ai/concepts/output-format",
+    "pricing": "https://breezeblue.ai/zh/pricing"
+  },
+  "limitations": [
+    "The authenticated checks synthesized an audition and six demo narration clips. Browser streaming, hangup and barge-in used a controlled upstream in a real rc.5 browser session.",
+    "The account balance, invoiced amount, hardware microphone-to-speaker latency and listening quality on other devices were not measured.",
+    "This release adds no new verification of Electron, other operating systems, or long-term model learning."
+  ]
+}
