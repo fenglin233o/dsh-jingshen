@@ -10,7 +10,8 @@ export interface VoiceMessage { id: string; text: string; tone?: VoiceTone }
 export interface VoiceDelivery extends VoiceMessage { sequence: number }
 export interface VoiceAvailability {
   input: { name: string; location: 'host-local' | 'cloud' } | null
-  output: { name: string; model: string; voice: string; location: 'host-local' | 'cloud' } | null
+  output: { name: string; model: string; voice: string; location: 'host-local' | 'cloud'; provider?: 'breezeblue' } | null
+  setup?: { kind: 'breeze-key' }
   active: boolean
 }
 export type VoiceEvent =

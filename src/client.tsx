@@ -486,6 +486,13 @@ type SpiritOverlayProps = PropsRuntime<'shell.overlay'> & {
 }
 function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
   const [mainId, setMainId] = useState(cachedMainId)
+  const credentials = ctx.get?.('remote.credentials') as {
+    set(ref: string, value: string): Promise<RemoteResult<void>>
+  } | undefined
+  const saveBreezeKey = async (value: string) => {
+    const result = await credentials?.set('BREEZE_API_KEY', value)
+    if (!result?.ok) throw new Error('Harness 未保存 Breeze 密钥')
+  }
   const acceptMainId = useCallback((id: string) => {
     try { sessionStorage.setItem(privateIdentityStorage, id) } catch { /* The current connection still knows its identity. */ }
     setMainId(id)
@@ -550,6 +557,7 @@ function SpiritOverlay({ ctx, useWorkspaces }: SpiritOverlayProps) {
     <SpiritWindow
       renderManagement={openNative => <Panel embedded openSession={openNative} />}
       renderModels={() => <SpiritModels ctx={ctx} />}
+      saveBreezeKey={credentials?.set ? saveBreezeKey : undefined}
       renderNativeInteractions={(sessionId, onPendingChange) =>
         <NativeInteractions ctx={ctx} sessionId={sessionId as SessionId} onPendingChange={onPendingChange} />}
       openSource={openSession} onMainId={acceptMainId} openSignal={openSignal} />

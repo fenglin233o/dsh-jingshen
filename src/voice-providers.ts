@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { BREEZE_MODEL, BREEZE_VOICE, breezeKey, streamBreeze } from './breeze-voice.ts'
 import { BUNDLED_VOICE_MODEL, PLAY_RATE, type VoiceAvailability, type VoiceMessage } from './voice-protocol.ts'
 import { LocalSpeech } from './local-speech.ts'
 
@@ -14,7 +15,11 @@ type Endpoint = { url: string; key?: string; location: 'host-local' | 'cloud' }
 type ListedModel = { id?: string; family?: string; task?: string; mode?: string }
 type Recognition = { info: NonNullable<VoiceAvailability['input']>; transcribe(wav: Uint8Array<ArrayBuffer>, signal: AbortSignal): Promise<string> }
 type Synthesis = { info: NonNullable<VoiceAvailability['output']>; stream(message: VoiceMessage, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> }
-export interface VoiceProviders { input: Recognition | null; output: Synthesis | null }
+export interface VoiceProviders {
+  input: Recognition | null
+  output: Synthesis | null
+  setup?: { kind: 'breeze-key' }
+}
 
 const characterModel = 'jingshen-character'
 const characterUrl = 'http://127.0.0.1:8891/v1'
@@ -148,13 +153,37 @@ export class VoiceProviderDiscovery {
     }
   }
 
+  private async breeze(input: Recognition | null): Promise<VoiceProviders> {
+    const keyConfigured = !!await breezeKey(this.ctx, this.env)
+    this.lifecycle.signal.throwIfAborted()
+    if (!keyConfigured) return { input, output: null, setup: { kind: 'breeze-key' } }
+    return {
+      input,
+      output: {
+        info: { name: '大肥鱼·迷糊版', provider: 'breezeblue', model: BREEZE_MODEL, voice: BREEZE_VOICE, location: 'cloud' },
+        stream: async (message, signal) => {
+          const caller = AbortSignal.any([signal, this.lifecycle.signal])
+          caller.throwIfAborted()
+          const key = await breezeKey(this.ctx, this.env)
+          caller.throwIfAborted()
+          if (!key) throw new Error('请先设置 BreezeBlue API Key')
+          return streamBreeze(key, message, caller)
+        },
+      },
+    }
+  }
+
   async detect(): Promise<VoiceProviders> {
     const env = this.env
     this.lifecycle.signal.throwIfAborted()
     const input = this.recognition()
+    if (env.SPIRIT_TTS_PROTOCOL === 'breezeblue') return this.breeze(input)
     if (env.SPIRIT_TTS_PROTOCOL === 'audiocpp') return { input, output: await this.audioCppSynthesis() }
     const kokoroRequested = /kokoro/iu.test(env.SPIRIT_TTS_MODEL ?? '') || (!env.SPIRIT_TTS_MODEL && /^[a-z][fm]_/iu.test(env.SPIRIT_TTS_VOICE ?? ''))
-    if (!env.SPIRIT_TTS_BASE_URL && !kokoroRequested && (!env.SPIRIT_TTS_MODEL || env.SPIRIT_TTS_MODEL === BUNDLED_VOICE_MODEL)) {
+    const openai = env.SPIRIT_TTS_PROTOCOL === 'openai' || /^(gpt-4o-mini-tts|tts-1|tts-1-hd)$/u.test(env.SPIRIT_TTS_MODEL ?? '')
+    const address = env.SPIRIT_TTS_BASE_URL || (openai ? 'https://api.openai.com/v1' : undefined)
+    if (!address && !env.SPIRIT_TTS_MODEL && !kokoroRequested) return this.breeze(input)
+    if (!address && env.SPIRIT_TTS_MODEL === BUNDLED_VOICE_MODEL) {
       const output: Synthesis | null = this.bundled.available('tts') ? {
         info: { name: '小肥鱼 · 轻声普通话', model: BUNDLED_VOICE_MODEL, voice: 'xiaoyu', location: 'host-local' },
         stream: (message, signal) => this.bundled.synthesize({ text: message.text,
@@ -162,7 +191,8 @@ export class VoiceProviderDiscovery {
       } : null
       return { input, output }
     }
-    const target = env.SPIRIT_TTS_BASE_URL ? endpoint(env.SPIRIT_TTS_BASE_URL, env.SPIRIT_TTS_API_KEY)
+    if (!address && !kokoroRequested && env.SPIRIT_TTS_MODEL !== characterModel) return { input, output: null }
+    const target = address ? endpoint(address, env.SPIRIT_TTS_API_KEY)
       : await this.localSynthesis(kokoroRequested)
     if (!target) return { input, output: null }
     const url = new URL(target.url)

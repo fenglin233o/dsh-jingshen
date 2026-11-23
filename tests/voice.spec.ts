@@ -36,18 +36,22 @@ test('explicit legacy character voice discovers its own loopback service without
   provider.close()
 })
 
-test('default speech is bundled without HTTP probes, and an explicit Kokoro choice still uses its named voice', async () => {
+test('default speech waits for its BreezeBlue key, while explicitly selected local engines remain available', async () => {
   const ctx = { get: () => undefined } as unknown as Context
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [{ id: 'kokoro' }] }))
   const defaultPhone = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_API_KEY: 'unused-remote-key' })
-  const { input, output } = await defaultPhone.detect()
-  expect(output?.info).toMatchObject({ model: 'jingshen-light', voice: 'xiaoyu', location: 'host-local' })
+  const { input, output, setup } = await defaultPhone.detect()
+  expect(output).toBeNull()
+  expect(setup).toEqual({ kind: 'breeze-key' })
   expect(input?.info).toEqual({ name: '随包普通话识别', location: 'host-local' })
+  const bundled = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_MODEL: 'jingshen-light' })
+  expect((await bundled.detect()).output?.info).toMatchObject({ model: 'jingshen-light', voice: 'xiaoyu', location: 'host-local' })
   expect(fetch).not.toHaveBeenCalled()
   const configured = new VoiceProviderDiscovery(ctx, { SPIRIT_TTS_VOICE: 'zf_xiaobei' })
   expect((await configured.detect()).output?.info).toMatchObject({ model: 'kokoro', voice: 'zf_xiaobei' })
   expect(fetch.mock.lastCall?.[0]).toBe('http://127.0.0.1:8880/v1/models')
   defaultPhone.close()
+  bundled.close()
   configured.close()
 })
 

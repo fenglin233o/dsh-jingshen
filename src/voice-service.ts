@@ -12,7 +12,7 @@ export interface VoiceOptions {
   cutGeneration?(cut: VoiceCut): void
 }
 type PublishedMessage = VoiceMessage & { source?: VoiceSource }
-type CallDelivery = VoiceDelivery & { source?: VoiceSource }
+type CallDelivery = VoiceDelivery & { source?: VoiceSource; breezeRequested?: boolean }
 type Call = {
   id: string
   providers: VoiceProviders
@@ -70,6 +70,31 @@ function speechChunks(text: string, limit: number): string[] {
   }
   if (pending) chunks.push(pending)
   return chunks
+}
+
+function* breezeChunks(text: string): Iterable<string> {
+  const characters = Array.from(text)
+  const limit = 1000
+  for (let start = 0; start < characters.length;) {
+    let end = Math.min(characters.length, start + limit)
+    if (end < characters.length) {
+      // Prefer a whole sentence near the limit. The provider streams even a single request.
+      let sentenceEnd: number | undefined
+      let clauseEnd: number | undefined
+      for (let position = end; position > start + limit / 2; position--) {
+        const previous = characters[position - 1]!
+        if (/[。！？!?；;\r\n]/u.test(previous) || (previous === '.' && /\s/u.test(characters[position]!))) {
+          sentenceEnd = position
+          break
+        }
+        if (clauseEnd === undefined && /[，,、\s]/u.test(previous)) clauseEnd = position
+      }
+      end = sentenceEnd ?? clauseEnd ?? end
+    }
+    const chunk = characters.slice(start, end).join('')
+    if (chunk.trim()) yield chunk
+    start = end
+  }
 }
 
 const mandarinWords = new Intl.Segmenter('zh', { granularity: 'word' })
@@ -166,7 +191,8 @@ export class VoiceService {
     const providers = await this.providers.detect()
     let active = !this.closed
     try { this.options.checkActive() } catch { active = false }
-    return { input: providers.input?.info ?? null, output: providers.output?.info ?? null, active }
+    return { input: providers.input?.info ?? null, output: providers.output?.info ?? null, active,
+      ...(providers.setup && { setup: providers.setup }) }
   }
 
   private requireActive(): void {
@@ -174,7 +200,7 @@ export class VoiceService {
     this.options.checkActive()
   }
 
-  async open(): Promise<{ id: string; input: boolean; neural: boolean; output: VoiceAvailability['output'] }> {
+  async open(): Promise<{ id: string; input: boolean; neural: boolean; output: VoiceAvailability['output']; setup?: VoiceAvailability['setup'] }> {
     this.requireActive()
     const providers = await this.providers.detect()
     this.requireActive()
@@ -183,7 +209,8 @@ export class VoiceService {
     const attachBy = setTimeout(() => this.hangup(id, '连接已过期'), 15_000)
     attachBy.unref()
     this.calls.set(id, { id, providers, attachBy, messages: new Map(), inputs: new Map(), sequence: 0, discardedThrough: 0, abort: new AbortController() })
-    return { id, input: !!providers.input, neural: !!providers.output, output: providers.output?.info ?? null }
+    return { id, input: !!providers.input, neural: !!providers.output, output: providers.output?.info ?? null,
+      ...(providers.setup && { setup: providers.setup }) }
   }
 
   private requireCall(id: string): Call {
@@ -239,7 +266,7 @@ export class VoiceService {
     } finally { if (call.transcription === signal) call.transcription = undefined }
   }
 
-  private message(call: Call, id: string): VoiceDelivery {
+  private message(call: Call, id: string): CallDelivery {
     const message = call.messages.get(id)
     if (!message || message.sequence <= call.discardedThrough) throw new Error('这条回复已离开通话播放队列')
     return message
@@ -248,20 +275,26 @@ export class VoiceService {
   async *speech(callId: string, messageId: string, caller: AbortSignal): AsyncIterable<Uint8Array> {
     const call = this.requireCall(callId)
     if (!call.receive || !call.providers.output) throw new Error('当前通话没有可用的神经语音')
+    caller.throwIfAborted()
     const message = this.message(call, messageId)
+    const { info } = call.providers.output
+    if (info.provider === 'breezeblue') {
+      // Claim before touching any existing playback. Concurrent reads must issue only one billable request.
+      if (message.breezeRequested) throw new Error('本次通话已经请求过这条回复的语音')
+      message.breezeRequested = true
+    }
     call.playback?.abort.abort()
     const playback = { sequence: message.sequence, abort: new AbortController() }
     call.playback = playback
     const signal = AbortSignal.any([call.abort.signal, playback.abort.signal, caller])
     try {
-      // Bound individual CPU syntheses independently of the length of the public chat message.
-      const model = call.providers.output.info.model
-      const chunks = model === BUNDLED_VOICE_MODEL ? primeChunks(message.text)
-        : speechChunks(message.text, model === 'jingshen-character' ? 80 : 1000)
+      const chunks = info.provider === 'breezeblue' ? breezeChunks(message.text)
+        : info.model === BUNDLED_VOICE_MODEL ? primeChunks(message.text)
+          : speechChunks(message.text, info.model === 'jingshen-character' ? 80 : 1000)
       for (const text of chunks) {
         signal.throwIfAborted()
         this.requireActive()
-        const stream = await call.providers.output.stream({ ...message, text }, signal)
+        const stream = await call.providers.output.stream({ id: message.id, text, tone: message.tone }, signal)
         const reader = stream.getReader()
         try {
           for (;;) {
@@ -272,7 +305,10 @@ export class VoiceService {
           }
         } finally { void reader.cancel().catch(() => {}) }
       }
-    } finally { if (call.playback === playback) call.playback = undefined }
+    } finally {
+      playback.abort.abort()
+      if (call.playback === playback) call.playback = undefined
+    }
   }
 
   playing(callId: string, messageId: string, playing: boolean): void {

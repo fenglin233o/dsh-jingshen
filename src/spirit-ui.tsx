@@ -272,13 +272,14 @@ function useWorkArea(launcher: React.RefObject<HTMLDivElement>) {
 export interface SpiritWindowProps {
   renderManagement(openSession: (sessionId: string) => Promise<void>): ReactNode
   renderModels(sessionId: string): ReactNode
+  saveBreezeKey?(key: string): Promise<void>
   renderNativeInteractions?(sessionId: string, onPendingChange: (pending: number) => void): ReactNode
   openSource(sessionId: string): Promise<void>
   onMainId?(sessionId: string): void
   openSignal?: number
 }
 
-export function SpiritWindow({ renderManagement, renderModels, renderNativeInteractions, openSource, onMainId, openSignal }: SpiritWindowProps) {
+export function SpiritWindow({ renderManagement, renderModels, renderNativeInteractions, openSource, saveBreezeKey, onMainId, openSignal }: SpiritWindowProps) {
   const [mode, setMode] = useState<WindowMode>('closed')
   const [draft, setDraft] = useState('')
   const [sendError, setSendError] = useState<string>()
@@ -522,7 +523,7 @@ export function SpiritWindow({ renderManagement, renderModels, renderNativeInter
       </div>}
       <footer className="jingshen-footer" ref={footer} hidden={mode !== 'chat' && !isPhone}>
         <div className="jingshen-media" data-call={isPhone || undefined}>
-          {showing && <VoiceCall key="voice" active={!!data && !paused && !error} onCallChange={setCall} />}
+          {showing && <VoiceCall key="voice" active={!!data && !paused && !error} onCallChange={setCall} saveBreezeKey={saveBreezeKey} />}
           {data && <VisionControls key="vision" paused={paused || !isAuthorized(error)} minimized={!showing} onWatchingChange={setWatching} />}
         </div>
         {showChat && <form className="jingshen-compose" onSubmit={event => { event.preventDefault(); void attemptSend() }}>

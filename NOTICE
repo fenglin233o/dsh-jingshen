@@ -1,4 +1,4 @@
-dsh-jingshen 0.4.2 · 精神
+dsh-jingshen 0.4.3 · 精神
 
 This is an independently adapted personal plugin, not an official DeepSeek product.
 It incorporates code from deepseek-ai/dsh-superagent-prototype under the MIT license.
@@ -21,7 +21,12 @@ EfficientDet-Lite0 detector. The detector, its attribution and its license are
 in src/vision-assets/. Character artwork was generated for this adaptation
 using the visual reference provided by its author.
 
-Default speech synthesis uses Luigi's single-speaker PrimeTTS v1b 16 kHz
+Default call synthesis uses the Breeze Blue cloud API with the public catalog
+voice 大肥鱼（迷糊版）, voc_8yud7hz7c9q2. The service and hosted voice are
+provided by Breeze Blue under its own terms. Official voice page:
+https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2
+
+The optional local voice assets include Luigi's single-speaker PrimeTTS v1b 16 kHz
 Apache-2.0 model. Large weights are packed as float16 for storage and restored
 to float32 for inference. The license, pronunciation data notices and upstream
 training credits, including Inflect-Nano-v1, VoxCPM2 and Common Voice zh-TW,
@@ -35,7 +40,7 @@ vocabulary. See media/voice/local/asr/NOTICE and media/voice/local/asr/LICENSE
 for the source, license and checksums. The recognizer uses the Sherpa-ONNX
 native runtime available to DeepSeek Harness 0.2.2-rc.5.
 
-ONNX Runtime Web is provided by Microsoft under the MIT license. The bundled
+ONNX Runtime Web is provided by Microsoft under the MIT license. The optional
 CPU WebAssembly runtime and its loader are accompanied by scripts/local-speech/ort/LICENSE
 and scripts/local-speech/ort/ThirdPartyNotices.txt.
 Source: https://github.com/microsoft/onnxruntime

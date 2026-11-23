@@ -1,9 +1,11 @@
-# 精神 0.4.2 本地发行包复核
+# 精神 0.4.3 发行包复核
 
 包名为 `dsh-jingshen`，作者 fenglin。唯一目标宿主为 DeepSeek Harness `0.2.2-rc.5`，Node.js 要求 24.9+。
 
-本版默认使用 PrimeTTS v1b 16 kHz 单一声线、随包的 Zipformer 中文 CTC 识别模型和 ONNX Runtime Web CPU 运行时，并复用 rc.5 的 Sherpa-ONNX。真实宿主的验收项目包括干净 profile 下的设备检测、随包样音、开麦转写、答复朗读、打断和挂断。默认路径应在未配置语音服务、未下载额外模型且无需 Python 或 GPU 的情况下工作。文字聊天期间无需启动语音进程，转写和合成在实际使用时加载。
+标准包应包含 Zipformer 中文 CTC 识别模型、词表及许可，并可通过 rc.5 的 Sherpa-ONNX 在本地转写。可选的 `dsh-jingshen-0.4.3-local-voice-assets.tgz` 提供 PrimeTTS 权重与 ONNX Runtime Web CPU 运行时。检查两份发行材料的文件清单、许可证，以及将可选资产解压到标准包后显式启用本机合成的路径。
 
-发行包检查需要核对 TTS、ASR、WASM、随包样音及各自的许可声明。兼容性、大小和性能以最终构建的实际验证记录为准。此前对单一精神预设、真实旧状态升级和 Linux Web 的完整复核见 [0.4.0 验证档案](../docs/verification-0.4.0.json)。[版本验证记录](../docs/verification.json)标明每份结果所对应的包版本。
+默认合成接线的复核范围包括缺少密钥时的提示和仅转写状态，原生凭据的保存及宿主环境变量的读取，通话接通后已交付正文的 PCM 朗读请求，以及打断、挂断、错误和显式输出选择。发行验收使用受控服务响应，未绑定账户密钥或做付费生成。云端实际费用、通话听感和延迟仍待有效密钥实测。官方样音由 Breeze 提供。[迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
+
+发行包大小与兼容性以最终构建的验收记录为准。此前对单一精神预设、真实旧状态升级和 Linux Web 的完整复核见 [0.4.0 验证档案](../docs/verification-0.4.0.json)。[版本验证记录](../docs/verification.json)标明每份结果所对应的包版本。
 
 安装本地包的步骤见 [README](../README.md)。公开发行标签及市场收录状态以实际仓库和社区目录为准。

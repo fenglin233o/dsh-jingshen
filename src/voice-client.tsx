@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { encodeVoiceWav, PcmPlayer, SpeechGate } from './voice-audio.ts'
 import { deviceVoice, speakOnDevice } from './voice-device.ts'
 import { PLAY_RATE, VOICE_PATH, type VoiceAvailability, type VoiceDelivery, type VoiceEvent } from './voice-protocol.ts'
 
 type Phase = 'checking' | 'idle' | 'connecting' | 'listening' | 'muted' | 'speaking' | 'transcribing' | 'disconnected'
-type OutputPreference = 'auto' | 'host' | 'system'
+type OutputPreference = 'auto' | 'host' | 'system' | 'input'
 type HostOutput = NonNullable<VoiceAvailability['output']>
 type CallOutput = { kind: 'host'; info?: HostOutput } | { kind: 'system'; voice: SpeechSynthesisVoice }
 export interface VoiceCallState {
@@ -14,6 +14,7 @@ export interface VoiceCallState {
   phase: Phase
   label: string
   error?: string
+  outputError?: string
   availability?: VoiceAvailability
   outputLabel?: string
   microphoneAvailable?: boolean
@@ -44,18 +45,27 @@ const labels: Record<Phase, string> = {
 }
 const initialState: VoiceCallState = { connected: false, listening: false, speaking: false, phase: 'checking', label: labels.checking }
 const preferenceKey = 'personal-spirit:voice-output'
+const breezeKeys = 'https://breezeblue.ai/zh/app/developer/api-keys'
+const breezePreview = 'https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2'
+const breezeUnavailable = 'BreezeBlue 朗读不可用。请检查 Harness 凭据 BREEZE_API_KEY。'
 
 function loadOutputPreference(): OutputPreference {
   try {
     const value = window.localStorage.getItem(preferenceKey)
-    if (value === 'host' || value === 'system') return value
+    if (value === 'host' || value === 'system' || value === 'input') return value
   } catch { /* Browsers may block storage in embedded views. */ }
   return 'auto'
 }
 
-function chooseOutput(preference: OutputPreference, neural: boolean, info?: HostOutput, voice?: SpeechSynthesisVoice): CallOutput | undefined {
-  if (preference !== 'system' && neural) return { kind: 'host', info }
-  if (preference !== 'host' && voice) return { kind: 'system', voice }
+function expectsBreeze(availability?: VoiceAvailability): boolean {
+  return availability?.setup?.kind === 'breeze-key' || availability?.output?.provider === 'breezeblue'
+}
+
+function chooseOutput(preference: OutputPreference, neural: boolean, info: HostOutput | undefined,
+  voice: SpeechSynthesisVoice | undefined, breeze: boolean): CallOutput | undefined {
+  if (preference === 'input') return
+  if (preference !== 'system' && neural && (!breeze || info?.provider === 'breezeblue')) return { kind: 'host', info }
+  if (voice && (preference === 'system' || preference === 'auto' && !breeze)) return { kind: 'system', voice }
 }
 
 function outputLabel(output?: CallOutput): string {
@@ -65,33 +75,58 @@ function outputLabel(output?: CallOutput): string {
   return info ? `${info.name}（${info.location === 'host-local' ? '宿主本机' : '远端服务'}）` : '宿主语音合成'
 }
 
+class VoiceRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message) }
+}
+
+function breezeError(error: unknown): { message: string; pause: boolean } {
+  if (error instanceof VoiceRequestError) {
+    if (error.status === 402 || error.code === 'breeze-credits' || /积分|余额|额度|credits?/i.test(error.message)) {
+      return { message: 'BreezeBlue 积分不足。请到 BreezeBlue 检查余额后重新接通。', pause: true }
+    }
+    if (error.status === 401 || error.status === 403 || error.code === 'breeze-auth'
+      || /认证|密钥|凭据|unauthorized|api key/i.test(error.message)) {
+      return { message: 'BreezeBlue 认证失败。请检查 Harness 凭据 BREEZE_API_KEY 后重新接通。', pause: true }
+    }
+    if (error.status === 429 || /请求过多|HTTP 429/i.test(error.message)) {
+      return { message: 'BreezeBlue 请求过多，未能朗读这条回复。', pause: false }
+    }
+  }
+  return { message: 'BreezeBlue 未能朗读这条回复。', pause: false }
+}
+
 export async function voiceFetch(action: string, params: Record<string, string> = {}, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   headers.set('x-personal-spirit', '1')
   const query = new URLSearchParams(params).toString()
   const response = await fetch(`${VOICE_PATH}/${action}${query ? '?' + query : ''}`, { credentials: 'same-origin', ...init, headers })
   if (response.ok) return response
-  const error = await response.json().catch(() => ({})) as { error?: string }
-  throw new Error(error.error ?? '语音连接失败')
+  const error = await response.json().catch(() => ({})) as { error?: string; code?: string }
+  throw new VoiceRequestError(error.error ?? '语音连接失败', response.status, error.code)
 }
 
 export class VoiceTransport {
   private state = initialState
   private call?: LiveCall
+  private checkEpoch = 0
 
   constructor(private readonly changed: (state: VoiceCallState) => void) {}
 
   private update(update: Partial<VoiceCallState>, phase?: Phase): void {
-    this.state = { ...this.state, ...update, ...(phase ? { phase, label: labels[phase] } : {}) }
+    const transcriptionOnly = this.call?.input && !this.call.output
+      && (phase === 'listening' || phase === 'muted' || phase === 'transcribing')
+    this.state = { ...this.state, ...update, ...(phase
+      ? { phase, label: transcriptionOnly ? `仅语音转写 · ${labels[phase]}` : labels[phase] } : {}) }
     this.changed(this.state)
   }
 
   async check(signal?: AbortSignal): Promise<void> {
+    const epoch = ++this.checkEpoch
     try {
       const availability = await (await voiceFetch('status', {}, { signal })).json() as VoiceAvailability
-      if (!signal?.aborted && !this.call) this.update({ availability, error: undefined }, 'idle')
+      if (epoch === this.checkEpoch && !signal?.aborted && !this.call) this.update({ availability, error: undefined }, 'idle')
     } catch (error) {
-      if (!signal?.aborted && !this.call) this.update({ availability: undefined,
+      if (epoch === this.checkEpoch && !signal?.aborted && !this.call) this.update({ availability: undefined,
         error: error instanceof Error ? error.message : '无法检查语音服务' }, 'disconnected')
     }
   }
@@ -106,17 +141,30 @@ export class VoiceTransport {
       framesPending: 0, lastSequence: 0, pending: [], utterances: Promise.resolve(), micEpoch: 0,
     }
     this.call = call
-    this.update({ error: undefined }, 'connecting')
+    this.update({ error: undefined, outputError: undefined }, 'connecting')
     try {
       await context.resume()
       const response = await voiceFetch('call', {}, { method: 'POST', signal: call.abort.signal })
-      const opened = await response.json() as { id: string; input: boolean; neural: boolean; output?: VoiceAvailability['output'] }
+      const opened = await response.json() as { id: string; input: boolean; neural: boolean;
+        output?: VoiceAvailability['output']; setup?: VoiceAvailability['setup'] }
       call.id = opened.id
       call.input = opened.input
       if (this.call !== call) { this.sendHangup(call); return }
-      const info = opened.output === undefined ? this.state.availability?.output : opened.output
-      call.output = chooseOutput(preference, opened.neural, info ?? undefined, deviceVoice())
-      if (!call.output && (preference !== 'auto' || !opened.input)) throw new Error('所选通话声线当前不可用，请检查语音')
+      const availability = this.state.availability
+      const info = opened.setup?.kind === 'breeze-key' ? null : opened.output === undefined ? availability?.output : opened.output
+      const breeze = expectsBreeze(availability) || opened.setup?.kind === 'breeze-key' || info?.provider === 'breezeblue'
+      if (availability && (opened.setup?.kind === 'breeze-key' || info?.provider === 'breezeblue' && availability.setup)) {
+        this.update({ availability: { ...availability, output: opened.setup ? null : info ?? null, setup: opened.setup } })
+      }
+      call.output = chooseOutput(preference, opened.neural, info ?? undefined, deviceVoice(), breeze)
+      if (!call.output && (!opened.input || preference !== 'auto' && preference !== 'input')) {
+        throw new Error(breeze && preference !== 'system' && preference !== 'input'
+          ? breezeUnavailable
+          : '所选语音方式当前不可用，请检查语音')
+      }
+      if (!call.output && preference === 'auto' && availability?.output?.provider === 'breezeblue') {
+        this.update({ outputError: breezeUnavailable })
+      }
       await this.events(call)
       if (this.call === call) this.hangup('语音连接已断开')
     } catch (error) {
@@ -175,7 +223,7 @@ export class VoiceTransport {
     const start = () => {
       if (signal.aborted || this.call !== call || started) return
       started = true
-      this.update({ speaking: true }, 'speaking')
+      this.update({ speaking: true, outputError: undefined }, 'speaking')
       this.media(call, message, 'start')
     }
     try {
@@ -188,8 +236,18 @@ export class VoiceTransport {
     } catch (error) {
       if (call.playback === playback) call.player.stop()
       if (!signal.aborted && this.call === call) {
-        const voice = call.preference === 'auto' && call.output?.kind === 'host' ? deviceVoice() : undefined
-        if (!started && voice) {
+        const host = call.output?.kind === 'host' ? call.output.info : undefined
+        const voice = !started && host?.provider !== 'breezeblue' && call.preference === 'auto'
+          && call.output?.kind === 'host' ? deviceVoice() : undefined
+        if (host?.provider === 'breezeblue') {
+          const failure = breezeError(error)
+          if (failure.pause) {
+            call.output = undefined
+            call.pending = []
+            if (call.input) this.update({ outputLabel: outputLabel(), outputError: failure.message })
+            else this.hangup(failure.message)
+          } else this.update({ outputError: failure.message })
+        } else if (voice) {
           call.output = { kind: 'system', voice }
           this.update({ outputLabel: outputLabel(call.output) })
           call.pending.unshift(message)
@@ -284,8 +342,10 @@ export class VoiceTransport {
       this.update({ listening: true, error: undefined }, this.restingPhase(call))
     } catch (error) {
       stream?.getTracks().forEach(track => track.stop())
-      if (this.call === call && call.micEpoch === epoch) this.update({ listening: false, error: error instanceof DOMException && error.name === 'NotAllowedError'
-        ? '未获得麦克风权限，仍可听语音' : '无法打开麦克风，仍可听语音' }, this.restingPhase(call))
+      if (this.call === call && call.micEpoch === epoch) {
+        const reason = error instanceof DOMException && error.name === 'NotAllowedError' ? '未获得麦克风权限' : '无法打开麦克风'
+        this.update({ listening: false, error: reason }, this.restingPhase(call))
+      }
     }
   }
 
@@ -322,7 +382,7 @@ export class VoiceTransport {
     this.releaseMic(call)
     this.sendHangup(call)
     void call.context.close().catch(() => {})
-    this.update({ connected: false, listening: false, speaking: false, error: reason, outputLabel: undefined,
+    this.update({ connected: false, listening: false, speaking: false, error: reason, outputError: undefined, outputLabel: undefined,
       microphoneAvailable: undefined }, reason ? 'disconnected' : 'idle')
   }
 }
@@ -354,9 +414,52 @@ function VoiceSample({ src }: { src: string }) {
   </>
 }
 
-export function VoiceCall({ active = true, onCallChange }: {
+function BreezeKeySetup({ missing, save, refresh }: {
+  missing: boolean
+  save(key: string): Promise<void>
+  refresh(): Promise<void>
+}) {
+  const field = useRef<HTMLInputElement>(null)
+  const saving = useRef(false)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState('')
+  useEffect(() => { if (editing) field.current?.focus() }, [editing])
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    if (saving.current || !field.current) return
+    const key = field.current.value.trim()
+    field.current.value = ''
+    if (!key) { setFailure('请输入 Breeze API 密钥。'); return }
+    saving.current = true
+    setBusy(true)
+    setFailure('')
+    try {
+      await save(key)
+      await refresh()
+      setEditing(false)
+    } catch {
+      setFailure('无法保存 Breeze 密钥，请重试。')
+    } finally {
+      saving.current = false
+      setBusy(false)
+    }
+  }
+
+  if (!editing) return <button type="button" onClick={() => setEditing(true)}>{missing ? '配置 Breeze 密钥' : '更新 Breeze 密钥'}</button>
+  return <form onSubmit={event => void submit(event)} aria-busy={busy}>
+    <label>Breeze API 密钥 <input ref={field} type="password" autoComplete="off" autoCapitalize="none" spellCheck={false} required disabled={busy} /></label>
+    <button type="submit" disabled={busy}>{busy ? '正在保存' : '保存至 Harness'}</button>
+    <button type="button" disabled={busy} onClick={() => { setFailure(''); setEditing(false) }}>取消</button>
+    {failure && <span role="alert">{failure}</span>}
+  </form>
+}
+
+export function VoiceCall({ active = true, onCallChange, saveBreezeKey }: {
   active?: boolean
   onCallChange?: (state: VoiceCallState) => void
+  saveBreezeKey?: (key: string) => Promise<void>
 }): React.JSX.Element {
   const [state, setState] = useState(initialState)
   const [transport] = useState(() => new VoiceTransport(setState))
@@ -382,12 +485,19 @@ export function VoiceCall({ active = true, onCallChange }: {
   useEffect(() => { onCallChange?.(state) }, [onCallChange, state])
   const { availability, connected } = state
   const hostOutput = availability?.output ?? undefined
-  const selected = chooseOutput(preference, !!hostOutput, hostOutput, systemVoice)
-  const canConnect = active && !!availability?.active && (!!selected || preference === 'auto' && !!availability.input)
-  const sample = selected?.kind === 'host' && hostOutput?.voice === 'xiaoyu'
+  const breeze = expectsBreeze(availability)
+  const missingKey = availability?.setup?.kind === 'breeze-key'
+  const selected = chooseOutput(preference, !!hostOutput, hostOutput, systemVoice, breeze)
+  const transcriptionOnly = !selected && (preference === 'auto' || preference === 'input') && !!availability?.input
+  const canConnect = active && !!availability?.active && (!!selected || transcriptionOnly)
+  const sample = selected?.kind === 'host' && hostOutput?.provider !== 'breezeblue'
+    && hostOutput?.location === 'host-local' && hostOutput.voice === 'xiaoyu'
     ? hostOutput.model === 'jingshen-light' ? 'xiaoyu-light-preview.mp3'
       : hostOutput.model === 'jingshen-character' ? 'xiaoyu-preview.mp3' : undefined
     : undefined
+  const error = [state.outputError, state.error].filter(Boolean).join(' ')
+  const idle = !connected && state.phase !== 'connecting' && active
+  const showBreezeSetup = breeze && (idle || connected && !!state.outputError)
   return <div className="spirit-voice">
     <div className="spirit-voice-controls">
       {connected || state.phase === 'connecting'
@@ -396,14 +506,16 @@ export function VoiceCall({ active = true, onCallChange }: {
             aria-pressed={state.listening}>{state.listening ? '关麦' : '开麦'}</button>}
           <button type="button" onClick={() => transport.hangup()}>挂断</button>
         </>
-        : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(preference)}>{availability?.input ? '接通并开麦' : '接通语音'}</button>}
-      {!connected && state.phase !== 'connecting' && active && <>
+        : <button type="button" disabled={!canConnect} onClick={() => void transport.connect(preference)}>
+          {transcriptionOnly ? '仅转写并开麦' : availability?.input ? '接通并开麦' : '接通语音'}
+        </button>}
+      {idle && <>
         <button type="button" onClick={() => { setSystemVoice(deviceVoice()); void transport.check() }}>检查语音</button>
         {sample && <VoiceSample key={sample} src={`/personal-spirit/assets/voice/${sample}`} />}
       </>}
     </div>
-    <p className="spirit-voice-status" data-error={!!state.error || undefined} role="status">{state.error ?? state.label}</p>
-    {!connected && state.phase !== 'connecting' && availability && active && <div className="spirit-voice-providers">
+    <p className="spirit-voice-status" data-error={!!error || undefined} role="status">{error || state.label}</p>
+    {idle && availability && <div className="spirit-voice-providers">
       <label>通话输出 <select value={preference} onChange={event => {
         const value = event.target.value as OutputPreference
         setPreference(value)
@@ -412,13 +524,21 @@ export function VoiceCall({ active = true, onCallChange }: {
         <option value="auto">自动选择</option>
         <option value="host" disabled={!hostOutput && preference !== 'host'}>宿主语音合成</option>
         <option value="system" disabled={!systemVoice && preference !== 'system'}>设备中文朗读</option>
+        <option value="input" disabled={!availability.input && preference !== 'input'}>仅语音转写</option>
       </select></label>
       {selected ? <span>通话声线 · {outputLabel(selected)}</span>
-        : <span>{preference === 'system' ? '设备没有本机普通话声线' : preference === 'host' ? '宿主语音合成未配置'
-          : availability.input ? '通话可转写，当前没有朗读声线' : '当前没有可用的通话语音'}</span>}
-      {!systemVoice && preference !== 'system' && <span>设备没有本机普通话声线</span>}
+        : <span>{transcriptionOnly ? '仅语音转写' : preference === 'system' ? '设备没有本机普通话声线'
+          : missingKey ? 'BreezeBlue 朗读未配置' : preference === 'host' ? '宿主语音合成未配置' : '当前没有可用的通话语音'}</span>}
+      {!systemVoice && preference !== 'system' && !breeze && <span>设备没有本机普通话声线</span>}
       {availability.input ? <span>转写 · {availability.input.name}（{availability.input.location === 'host-local' ? '宿主本机' : '远端服务'}）</span>
         : <span>未配置语音转写</span>}
+    </div>}
+    {showBreezeSetup && <div className="spirit-voice-setup">
+      {missingKey ? <p>在 Harness 凭据中保存 <code>BREEZE_API_KEY</code>，再点「检查语音」。请勿把密钥发到聊天中。</p>
+        : idle && selected?.kind === 'host' ? <p>BreezeBlue 接收要朗读的回复文字，并按用量计费。</p> : null}
+      <a href={breezeKeys} target="_blank" rel="noopener noreferrer">BreezeBlue API 密钥</a>
+      <a href={breezePreview} target="_blank" rel="noopener noreferrer">官方试听 · 大肥鱼（迷糊版）</a>
+      {idle && saveBreezeKey && <BreezeKeySetup missing={missingKey} save={saveBreezeKey} refresh={() => transport.check()} />}
     </div>}
     {connected && <span className="spirit-voice-provider" role="status">{state.outputLabel}</span>}
   </div>

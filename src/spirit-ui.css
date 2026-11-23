@@ -425,6 +425,11 @@
 .jingshen-media .spirit-voice-controls { display: flex; flex-wrap: wrap; gap: 4px; }
 .jingshen-media .spirit-voice-status, .jingshen-media .spirit-voice-provider { margin: 0; font-size: 10px; color: var(--muted); }
 .jingshen-media .spirit-voice-providers { flex-basis: 100%; display: flex; gap: 4px 7px; flex-wrap: wrap; font-size: 10px; color: var(--muted); }
+.jingshen-media .spirit-voice-setup { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 9px; font-size: 11px; color: var(--muted); }
+.jingshen-media .spirit-voice-setup p { flex-basis: 100%; margin: 0; }
+.jingshen-media .spirit-voice-setup a { color: #394889; text-underline-offset: 2px; }
+.jingshen-media .spirit-voice-setup form { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.jingshen-media .spirit-voice-setup input { box-sizing: border-box; max-width: 100%; }
 .jingshen-media .spirit-voice-providers label { display: inline-flex; gap: 3px; align-items: center; }
 .jingshen-media .spirit-voice-providers select {
   max-width: 100%;

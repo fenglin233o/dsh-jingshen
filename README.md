@@ -2,7 +2,7 @@
 
 作者：**fenglin**。当前验证范围为 Harness 本地 Web；Electron 桌面客户端尚未完成兼容验收。
 
-个人使用的 DeepSeek Harness 插件，以 SuperAgent 的任务引擎、SQLite 存储与持久执行队列为基底。**0.4.2 仅面向 DeepSeek Harness 0.2.2-rc.5**，需要 Node.js **24.9+**。安装后有一个“精神”预设。聊天入口是工作画幅里的小肥鱼，点击后会从鱼身旁展开主会话。
+个人使用的 DeepSeek Harness 插件，以 SuperAgent 的任务引擎、SQLite 存储与持久执行队列为基底。**0.4.3 仅面向 DeepSeek Harness 0.2.2-rc.5**，需要 Node.js **24.9+**。安装后有一个“精神”预设。聊天入口是工作画幅里的小肥鱼，点击后会从鱼身旁展开主会话。
 
 它承认模型、语言、工具、已有历史和与你的关系已经构成丰富的起点。没有预写的人格、六阶段成长路线，也不要求每次工作都填写哲学表格。设计依据与解释边界见 [《精神现象学》对照](docs/PHENOMENOLOGY.md) 和 [架构说明](docs/ARCHITECTURE.md)。
 
@@ -29,7 +29,7 @@ dsh --profile spirit --from-default-profile web --dump-config
 
 ### 建议：使用独立源码目录
 
-在 0.4.2 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
+在 0.4.3 源码目录中构建并安装到自己的 profile。以下命令在该目录运行。
 
 ```sh
 npm ci
@@ -50,7 +50,7 @@ node scripts/run.mjs --state-dir /绝对路径/spirit-state -- dsh --profile spi
 ### 安装已构建的包
 
 ```sh
-dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.2.tgz
+dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.3.tgz
 dsh --profile spirit --no-open
 ```
 
@@ -62,11 +62,11 @@ dsh --profile spirit --no-open
 
 ### 从上一版升级
 
-沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0、0.4.0 和 0.4.1 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.2。以下使用已有的 `spirit` profile。
+沿用已有 profile。先停止旧进程，备份插件的 `stateDir` 和 Harness 会话数据。0.3.0 至 0.4.2 用户沿用 rc.5，0.2.0 用户先把宿主升级到 rc.5，再安装 0.4.3。以下使用已有的 `spirit` profile。
 
 ```sh
 dsh plugin --profile spirit remove dsh-jingshen
-dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.2.tgz
+dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.3.tgz
 ```
 
 继续使用原先的 `stateDir`，默认路径为 `~/.local/share/dsh-personal-spirit/`。同一路径会打开原来的主会话和 SQLite 数据。以前的记录使用过的预设标识 `dsh-personal-spirit` 只用于接回旧会话。当前可选的预设只有 `dsh-spirit`。
@@ -79,7 +79,7 @@ dsh plugin --profile spirit add /绝对路径/dsh-jingshen-0.4.2.tgz
 
 工作时小肥鱼抱着笔记本打字。已授权的视频真正播放时才会出现玩手机的动作。它还可以自行做表情或收起表情。在完全访问下，空闲时也可以选择告诉你一件事，或自行行动而不通知。开启语音、调整音色、共享视频和连接已登录标签页的步骤见 [通话与视觉](docs/MEDIA.md)。
 
-小肥鱼默认使用随包的普通话识别和轻盈中文女声。通话的录音转写和语音合成都在宿主本机 CPU 上运行，首次使用对应功能时加载模型。无需准备 Python、GPU、额外模型、语音服务地址或 API 密钥。在通讯窗点击“试听小肥鱼声线”可先听实际合成的样音。原先显式配置的语音服务可以继续使用。[通话设置与其他声线](docs/MEDIA.md)
+通话默认在宿主本机转写普通话，朗读使用 Breeze 云端的「大肥鱼（迷糊版）」。在小肥鱼的“通话”中点击“配置 Breeze 密钥”，通过 Harness 凭据保存专用的 `BREEZE_API_KEY`。只有通话接通后，已交付的发言正文才会发往 Breeze 进行语音合成。文字聊天无需这把密钥。你也可以手选设备普通话声线、继续使用原先显式配置的语音服务，或另装上一版的本机 PrimeTTS 声线。[通话、凭据与费用](docs/MEDIA.md) · [迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2)
 
 面板提供两种真实权限模式：
 

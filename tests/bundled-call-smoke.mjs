@@ -1,4 +1,4 @@
-// Run from a source checkout with its dependencies installed:
+// Run from a source checkout with dependencies and the local voice assets:
 // node --experimental-transform-types tests/bundled-call-smoke.mjs
 import assert from 'node:assert/strict'
 import { VoiceService } from '../src/voice-service.ts'
@@ -7,6 +7,7 @@ const text = process.argv[2] || '嗯，你说，我在听。刚才有点走神�
 for (const key of Object.keys(process.env)) {
   if (key.startsWith('SPIRIT_TTS_') || key.startsWith('SPIRIT_ASR_')) delete process.env[key]
 }
+process.env.SPIRIT_TTS_MODEL = 'jingshen-light'
 const service = new VoiceService({ ctx: { get: () => undefined }, checkActive() {}, async submit() {} })
 const signal = AbortSignal.timeout(120_000)
 try {

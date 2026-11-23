@@ -10,6 +10,7 @@ async function openPrime() {
   for (const key of ['SPIRIT_TTS_MODEL', 'SPIRIT_TTS_BASE_URL', 'SPIRIT_TTS_VOICE', 'SPIRIT_TTS_PROTOCOL', 'SPIRIT_ASR_BASE_URL']) {
     vi.stubEnv(key, undefined)
   }
+  vi.stubEnv('SPIRIT_TTS_MODEL', BUNDLED_VOICE_MODEL)
   vi.spyOn(LocalSpeech.prototype, 'available').mockImplementation(kind => kind === 'tts')
   const phrases: string[] = []
   vi.spyOn(LocalSpeech.prototype, 'synthesize').mockImplementation(async message => {
@@ -99,4 +100,71 @@ test('Prime bounds pathological unbroken tokens and can speak immediately after 
     expect(f.phrases.join('')).toBe(text)
     expect(f.phrases.every(phrase => phrase.length <= 256)).toBe(true)
   } finally { f.close() }
+})
+
+async function openBreeze() {
+  for (const key of ['SPIRIT_TTS_MODEL', 'SPIRIT_TTS_PROTOCOL', 'SPIRIT_TTS_BASE_URL', 'SPIRIT_ASR_BASE_URL']) vi.stubEnv(key, undefined)
+  vi.stubEnv('BREEZE_API_KEY', 'synthetic-test-value')
+  vi.spyOn(LocalSpeech.prototype, 'available').mockImplementation(kind => kind === 'asr')
+  const requests: { text: string; signal: AbortSignal }[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    requests.push({ text: JSON.parse(init!.body as string).text, signal: init!.signal! })
+    return new Response(Uint8Array.of(3, 0), { headers: { 'content-type': 'audio/pcm' } })
+  })
+  const service = new VoiceService({ ctx: { get: () => undefined } as unknown as Context, checkActive() {}, submit: async () => {} })
+  expect((await service.availability()).input?.location).toBe('host-local')
+  const call = await service.open()
+  service.attach(call.id, () => {})
+  expect(fetch).not.toHaveBeenCalled()
+  return { service, requests,
+    speech: (id: string, signal = new AbortController().signal) => service.speech(call.id, id, signal)[Symbol.asyncIterator]() }
+}
+
+test('one delivered Breeze reply makes one request even with concurrent and repeated reads', async () => {
+  const f = await openBreeze()
+  try {
+    const text = '雨停了吗？我们一起出去走走吧。'
+    await expect(f.speech('reply').next()).rejects.toThrow('播放队列')
+    f.service.delivered({ id: 'reply', text })
+    await expect(f.speech('reply', AbortSignal.abort()).next()).rejects.toThrow()
+    const first = f.speech('reply')
+    const opened = first.next()
+    await expect(f.speech('reply').next()).rejects.toThrow('已经请求过')
+    expect((await opened).value).toEqual(Uint8Array.of(3, 0))
+    expect(f.requests[0]?.signal.aborted).toBe(false)
+    await drain(first)
+    await expect(f.speech('reply').next()).rejects.toThrow('已经请求过')
+    expect(f.requests.map(r => r.text)).toEqual([text])
+  } finally { f.service.close() }
+})
+
+test('long Breeze replies split at natural boundaries within the 1,000 Unicode character limit', async () => {
+  const f = await openBreeze()
+  try {
+    const sentence = '𠮷'.repeat(683) + '。'
+    const clause = '夏'.repeat(700) + '，'
+    const text = sentence + clause + 'A'.repeat(1050) + '结束。'
+    f.service.delivered({ id: 'long', text })
+    await drain(f.speech('long'))
+    const chunks = f.requests.map(r => r.text)
+    expect(chunks.slice(0, 2)).toEqual([sentence, clause])
+    expect(chunks.every(chunk => Array.from(chunk).length <= 1000)).toBe(true)
+    expect(chunks.join('')).toBe(text)
+  } finally { f.service.close() }
+})
+
+test('ending a Breeze read stops its upstream and skips subsequent chunks without suppressing new replies', async () => {
+  const f = await openBreeze()
+  try {
+    f.service.delivered({ id: 'long', text: '天地'.repeat(1200) })
+    const speech = f.speech('long')
+    await speech.next()
+    expect(f.requests).toHaveLength(1)
+    await speech.return!()
+    expect(f.requests[0]!.signal.aborted).toBe(true)
+    await expect(f.speech('long').next()).rejects.toThrow('已经请求过')
+    f.service.delivered({ id: 'new', text: '从这里接着聊。' })
+    await drain(f.speech('new'))
+    expect(f.requests.map(r => r.text)).toEqual(['天地'.repeat(500), '从这里接着聊。'])
+  } finally { f.service.close() }
 })

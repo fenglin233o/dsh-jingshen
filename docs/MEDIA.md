@@ -4,15 +4,47 @@
 
 ## 给精神打电话
 
-1. 在 DeepSeek Harness 0.2.2-rc.5 中打开小肥鱼通讯窗，选择主会话模型。点击“检查语音”可确认通话实际选用的识别和合成服务。默认合成显示“小肥鱼 · 轻声普通话（宿主本机）”。
-2. 点击“试听小肥鱼声线”可播放随包的实际合成样音，无需打开麦克风。当前默认声线是 PrimeTTS v1b 的 16 kHz 单一声线，定位为轻盈的中文女声。[听这一版的实际通话样音](../media/voice/xiaoyu-light-preview.mp3)。
-3. 点击“接通并开麦”，在浏览器中授权麦克风。开口可以打断当前朗读，也会终止该条答复仍在继续的生成。之后可以继续说话，其他项目可以继续工作。挂断会释放麦克风。
+1. 默认朗读使用 Breeze Blue 的「大肥鱼（迷糊版）」。可以先听官方页面上的试听，再自行在 Breeze 开发者账户创建一把 API 密钥。[迷糊版官方试听](https://breezeblue.ai/zh/voice-library/dafeiyu-dreamy-girl-voice-v8yud7hz7c9q2) · [Breeze API 密钥管理](https://breezeblue.ai/zh/app/developer/api-keys)
+2. 打开小肥鱼的“通话”，点击“配置 Breeze 密钥”（已有密钥时点“更新 Breeze 密钥”）。在专用输入框中填写后，点击“保存至 Harness”，通话会刷新语音配置。该操作通过 Harness 0.2.2-rc.5 的原生凭据服务在宿主保存 `BREEZE_API_KEY`。请勿把密钥发到聊天、填入其他插件页面或写入仓库。
+3. 在小肥鱼通讯窗选定主会话模型，点击“检查语音”确认识别和朗读服务。点击“接通并开麦”后在浏览器授权麦克风。开口可打断当前朗读，挂断会释放麦克风。没有 Breeze 密钥时仍可文字聊天，也可以在有可用识别服务时使用“仅语音转写”。要换声线，请显式选择设备朗读或在宿主配置其他服务。
 
-默认语音在 Harness 宿主的 CPU 上运行。语音合成使用随包的 ONNX Runtime Web。录音转写使用随包的 Zipformer 中文 CTC 模型和宿主随附的 Sherpa-ONNX 运行时。普通文字聊天无需启动语音进程，首次转写或合成时才加载对应模型。默认通话无需 Python、GPU、额外模型、语音服务地址或 API 密钥。会话回复仍由你在 Harness 里选定的聊天模型生成。许可证及来源见 [语音合成声明](../media/voice/local/tts/NOTICE.txt) 和 [语音识别声明](../media/voice/local/asr/NOTICE)。
+标准包保留 Zipformer 中文 CTC 识别模型，转写使用宿主的 Sherpa-ONNX。默认云端朗读采用 `breeze-tts-2`、语言 `zh` 和音色 `voc_8yud7hz7c9q2`。接通通话后，宿主只为新交付的公开正文请求 PCM 音频流。该条回复明确选择柔和、温暖、认真或俏皮语气时，宿主另附简短的表演提示，原文照发；默认和中性语气沿用音色本身的读法。麦克风录音、聊天历史和草稿不随合成请求发送。回复内容仍由选定的 Harness 聊天模型生成。[语音识别声明](../media/voice/local/asr/NOTICE)
 
-如想让浏览器所在设备负责朗读，可在“通话输出”中选择“设备中文朗读”。只有设备已经安装普通话声线且浏览器将它标为本机服务（`localService`）时，这个选项才可用。界面显示实际选用的声线名称。麦克风转写仍由“检查语音”显示的识别服务处理。
+宿主发送 `enable_logging=false`，请求 Breeze 跳过生成历史记录。服务端仍可能保留运营或计费日志。打断或挂断会停止本地播放并取消仍在读取的流，费用和结算状态以 Breeze 账户明细为准。此版本未用有效 Breeze 密钥测量实际费用、通话听感或延迟。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
 
-在已安装依赖的源码目录运行 `node --experimental-transform-types tests/bundled-call-smoke.mjs`，可以在自己的机器上测同一句话冷启动、连续通话时的首段耗时和完整音频时长。
+### 从命令行配置宿主密钥
+
+Harness 使用本地凭据文件时，可将 `BREEZE_API_KEY` 加入现有 `$DSH_HOME/.credentials.yaml` 的 `refs` 部分。未自定义时，文件默认位于 `~/.dsh/.credentials.yaml`。新建文件要写入 `version: 1`，已有文件沿用原有内容和版本。在 Linux 上请将文件权限设为 `0600`。[Harness 本地凭据说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/credentials/credentials-local/README.zh.md)
+
+也可以通过宿主的同名启动环境变量提供密钥。例如在宿主的 Bash 终端执行下列命令，提示后输入实际密钥。
+
+```sh
+(
+  read -rsp 'Breeze API 密钥：' BREEZE_API_KEY
+  printf '\n'
+  export BREEZE_API_KEY
+  dsh --profile spirit --no-open
+)
+```
+
+也可在不纳入版本控制的 Harness 主目录 `$DSH_HOME/.env` 设置 `BREEZE_API_KEY`。宿主优先使用已保存的 Harness 凭据。修改启动环境或 `.env` 后重启宿主，再点击“检查语音”。
+
+### Breeze 积分与费用
+
+按 2026 年 11 月 23 日的官方规则，10 个加权字符消耗 1 积分。汉字每个计 2 个，标点、空格、数字和拉丁字母每个计 1 个。50 个纯汉字消耗 10 积分。Free 与非企业付费套餐可每天手动领取 400 积分，Studio 与 API 共用积分余额。充值比例为 3 美元兑 10,000 积分，单次最低充值 5 美元。[Breeze 中文定价](https://breezeblue.ai/zh/pricing) · [Breeze API 计费规则](https://docs.breezeblue.ai/concepts/pricing)
+
+### 选择本机朗读
+
+如想让浏览器所在设备负责朗读，可在“通话输出”中手动选择“设备中文朗读”。设备须已安装普通话声线，且浏览器将它标为本机服务（`localService`）。界面显示实际选用的声线名称，麦克风转写仍由“检查语音”显示的识别服务处理。
+
+要继续用 0.4.2 的 PrimeTTS v1b 轻盈中文女声，请从同版本发布下载 `dsh-jingshen-0.4.3-local-voice-assets.tgz`。先安装标准包，再将资产解压至实际加载的插件根目录，也就是包含该插件 `package.json` 的目录。压缩包提供 `media/voice/local/tts/` 和 `scripts/local-speech/ort/`，安装后仍使用同一个插件和 profile。曾显式配置 `SPIRIT_TTS_PROTOCOL` 或 `SPIRIT_TTS_BASE_URL` 时，先移除这两项设置再启动。
+
+```sh
+tar -xzf /绝对路径/dsh-jingshen-0.4.3-local-voice-assets.tgz -C /绝对路径/dsh-jingshen
+SPIRIT_TTS_MODEL=jingshen-light dsh --profile spirit --no-open
+```
+
+这一选择使用本机 CPU，无需 Breeze 密钥、Python 或 GPU。模型和运行时的许可证随资产包提供。[PrimeTTS 本机样音](../media/voice/xiaoyu-light-preview.mp3)
 
 ### 使用现有的语音服务
 
@@ -22,7 +54,9 @@
 | --- | --- |
 | `SPIRIT_ASR_BASE_URL`、`SPIRIT_ASR_MODEL`、`SPIRIT_ASR_API_KEY` | 选择 OpenAI 兼容的 `/audio/transcriptions` 服务。未指定地址时，可继续使用 Harness 已选且可用的本机语音输入，其余情况使用随包普通话识别 |
 | `SPIRIT_ASR_LANGUAGE` | 默认 `zh`；选择 `auto` 让服务自行判断语言 |
-| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 选择 `/audio/speech` 服务、模型、声音与密钥。密钥仅随请求发往显式配置的地址。兼容服务的响应为 24 kHz 单声道有符号 16 位小端 PCM |
+| `BREEZE_API_KEY` | 默认 Breeze Blue 云端朗读专用密钥。使用 Harness 凭据或同名宿主环境变量 |
+| `SPIRIT_TTS_PROTOCOL=breezeblue` | 显式选择默认的 Breeze Blue 云端服务 |
+| `SPIRIT_TTS_BASE_URL`、`SPIRIT_TTS_MODEL`、`SPIRIT_TTS_VOICE`、`SPIRIT_TTS_API_KEY` | 显式选择 `/audio/speech` 服务、模型、声音与该服务的密钥。兼容服务的响应为 24 kHz 单声道有符号 16 位小端 PCM |
 | `SPIRIT_TTS_PROTOCOL=audiocpp` | 显式选择 audio.cpp 的 BreezeTTS 2 流式接口。默认地址为 `http://127.0.0.1:8080/v1`，模型标识为 `breeze`，声库别名为 `xiaoyu` |
 | `SPIRIT_TTS_STYLE` | 在常规兼容接口中，`pace` 传送语速，`instructions` 传送表演提示 |
 | `SPIRIT_TTS_LOCAL_PROBE=0` | 禁用 ZipVoice 或 Kokoro 的本地端口自动发现。显式选择 audio.cpp 时仍会检查相应服务的模型 |
