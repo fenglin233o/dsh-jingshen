@@ -1,0 +1,31 @@
+name: Attach verified 0.4.5 release files
+on:
+  push:
+    branches: [release-assets/v0.4.5]
+    paths: [.github/workflows/attach-0.4.5.yml]
+permissions:
+  contents: write
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check release files
+        run: |
+          cat parts/dsh-jingshen-0.4.5-local-voice-assets.tgz.* > dsh-jingshen-0.4.5-local-voice-assets.tgz
+          cat parts/dsh-jingshen-0.4.5-source.zip.* > dsh-jingshen-0.4.5-source.zip
+          cat parts/dsh-jingshen-0.4.5.tgz.* > dsh-jingshen-0.4.5.tgz
+          sha256sum --check <<'SUMS'
+          09b710c7364c9658387435a617f1037d57b7158c0e4e8a460b8e75239f19a1fd  dsh-jingshen-0.4.5-installed.png
+          2d6c0bdb807359ab5a9b85a2bc5b0c163716031225d8c0abd2f160b48d727062  dsh-jingshen-0.4.5-local-voice-assets.tgz
+          941d3b83af3b255b5d9eed848429c39f2cdbef3903aeb7f95e7a6a9355669f1d  dsh-jingshen-0.4.5-mediated-replies.png
+          c4d96ecc4647fc8a57ff0fd4428c47acffdc2a19b9e186f32a60ca1aa5dc06c0  dsh-jingshen-0.4.5-source.zip
+          b42c625fe440388844e94880d705b5e5b5556faf16c721b1f513161e54ede744  dsh-jingshen-0.4.5-verification.json
+          2467a76eab70992a3602702bdd278ff166c2a8f1ca92ef096ae638c3cd44e864  dsh-jingshen-0.4.5.tgz
+          SUMS
+      - name: Attach verified release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload v0.4.5 --repo "$GITHUB_REPOSITORY" dsh-jingshen-0.4.5*

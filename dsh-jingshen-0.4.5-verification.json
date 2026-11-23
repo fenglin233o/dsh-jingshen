@@ -1,0 +1,787 @@
+{
+  "release": "v0.4.5",
+  "sourceCommit": "e78037dcb3fe21fe5ad8cfbad0c5c04755ebab29",
+  "testPlatform": "Linux x86_64, Node 24.22.3, Harness 0.2.2-rc.5, Chromium 156.0.8078.79",
+  "artifacts": [
+    {
+      "file": "dsh-jingshen-0.4.5-installed.png",
+      "sha256": "09b710c7364c9658387435a617f1037d57b7158c0e4e8a460b8e75239f19a1fd",
+      "bytes": 133216
+    },
+    {
+      "file": "dsh-jingshen-0.4.5-local-voice-assets.tgz",
+      "sha256": "2d6c0bdb807359ab5a9b85a2bc5b0c163716031225d8c0abd2f160b48d727062",
+      "bytes": 12249297
+    },
+    {
+      "file": "dsh-jingshen-0.4.5-mediated-replies.png",
+      "sha256": "941d3b83af3b255b5d9eed848429c39f2cdbef3903aeb7f95e7a6a9355669f1d",
+      "bytes": 188487
+    },
+    {
+      "file": "dsh-jingshen-0.4.5-source.zip",
+      "sha256": "c4d96ecc4647fc8a57ff0fd4428c47acffdc2a19b9e186f32a60ca1aa5dc06c0",
+      "bytes": 45063148
+    },
+    {
+      "file": "dsh-jingshen-0.4.5.tgz",
+      "sha256": "2467a76eab70992a3602702bdd278ff166c2a8f1ca92ef096ae638c3cd44e864",
+      "bytes": 32415991
+    }
+  ],
+  "verifiedEachTarballFileAgainstSource": true,
+  "standardAndOptionalPackagesDisjoint": true,
+  "unitTestsPassed": 265,
+  "hostSuites": {
+    "default": [
+      "the native preset selector offers a single Spirit entry",
+      "full package mounts and native agent executes Spirit tools",
+      "model tool roster exposes continuity tools without owner control setters",
+      "normal Workspace navigation cannot take the private main, while standard and participating project blanks retain their own presets",
+      "native owner-created conversation inherits active work on its first request and can revise it for the whole profile",
+      "declining a real owner request records model authorship and creates no task",
+      "real rc.5 context overflow and native compaction retain the current orientation and do not revive cancelled work",
+      "Team disabled leaves ordinary native spawn operational with isolated context and a child-attributed result",
+      "native fork sees completed root context, mutates the shared Team task board as a named member and returns a child-attributed result",
+      "Team member messages and the live roster preserve native member names and authorship",
+      "native delegation revocation and stop abort work and background jobs without replaying queued work or affecting another preset",
+      "a new native follow-up can continue the member under workspace access without restoring the revoked input",
+      "native create/read/post preserves self attribution and workspace membership",
+      "session-local model and reasoning effort reach native requests",
+      "ask mode awaits and records native rejection before mutation",
+      "pause withdraws a pending native approval before its mutation",
+      "permission changes invalidate an outstanding native approval grant",
+      "full permission uses the selected standing access without extra asks",
+      "self-change verifies through native shell, refuses failed checks, applies and rolls back a local candidate",
+      "restart preserves the selected Team mode and shared task history in the native Lead Session",
+      "restart preserves awaiting_decision and never duplicates an accepted background turn",
+      "restart preserves native logs/model choice and one-shot revisit reaches jingshen_decide",
+      "parallel permission/pause controls converge and revoke queued native activity",
+      "fault injection: delayed native pause flush cannot overtake newer resume permission state",
+      "fault injection: permission/pause/resume overlap reconciles the latest owner revision",
+      "direct native input while paused invokes neither model stream nor tool action",
+      "pause prevents deadline dispatch while keeping unresolved intentions",
+      "pause cancels active inference and stop prevents future autonomous actions"
+    ],
+    "open-activity": [
+      "full access offers an event-free idle opportunity and preserves the native self-authored input",
+      "quiet orientation suppresses further event-free model requests",
+      "owner pause keeps an open orientation idle across another due interval",
+      "withdrawing full access aborts an admitted idle model turn and still accepts later owner input",
+      "an event-free opportunity can end silently without recording a judgment or blocking the next opportunity"
+    ],
+    "mediation": [
+      "an ordinary main-session draft reaches the same selected model for a real publish decision before the native and IM messages are delivered",
+      "an explicit expression selects the actual public body in one model request and keeps the discarded draft and reasoning out of the public IM and proof",
+      "waiting and silence withhold drafts, while two volunteered utterances have distinct native message IDs and model steps in one turn",
+      "an intact ordinary answer is delivered before a separate native decision makes another message",
+      "a new decision after delivery can execute a real native tool and then finish silently",
+      "owner input queued during publication takes the next turn before any optional continuation",
+      "a participating project shows the laptop during real model work even before any tool runs",
+      "a participating owner project carries an exact provenance record and a standard project retains native output without a Spirit record",
+      "an explicitly participating custom project mediates normally and retains its native sandbox and approval even when global access becomes full",
+      "an already participating project keeps the owner’s later native customization and other conversations remain operable",
+      "a session created through the actual jingshen_sessions tool also withholds original fragments before delivering its attributed output",
+      "spawned and forked native team members review their drafts in their own sessions and report revised text under their original sender identities",
+      "pausing after the adapter generated draft tokens prevents even a transient native text fragment from reaching its consumer",
+      "the identified main session continues through Spirit after an explicit native preset change",
+      "the fallback expression review can rewrite an ordinary model answer before the very first published text token",
+      "official Chromium Chat displays each verified badge, including an earlier reply after retrying a failed receipt lookup",
+      "the official Chromium private window displays the approved main reply and omits abandoned drafts and provider reasoning"
+    ],
+    "chat": [
+      "Ask mode does not initiate an idle chat or native open opportunity",
+      "IM submits authenticated owner input to the same native main session and pages exact, deduplicated replies",
+      "Full access allows the model to independently send a new message or quietly finish the next open turn",
+      "an idle wake uses the same independent model decisions to deliver two complete messages in one native turn",
+      "A project can independently publish one attributed IM message without making its private native answer an IM message",
+      "Pause prevents delivery and restart preserves cursor and never requeues the same owner submission"
+    ],
+    "voice": [
+      "voice interruption stops the exact native main continuation, releases phone presence, and preserves later owner input and project work"
+    ],
+    "approval-ui": [
+      "the native ask survives model selection and closing the fish window, and the actual Reject button prevents the mutation",
+      "Allow once settles the official native approval waterfall and creates exactly one real Workspace Session",
+      "pausing withdraws the pending approval and its native cancelled outcome leaves the Workspace untouched",
+      "the official native question carrier receives the exact option selected in the fish conversation",
+      "the live phone view exposes the same official native approval and the browser refusal prevents the mutation"
+    ]
+  },
+  "archiveUpgrade": {
+    "harness": "0.2.2-rc.5",
+    "checks": [
+      "0.4.3 installed by dsh and produced real owner and assistant turns in Chromium",
+      "Same profile retains chat, permissions, an unfinished intention and project membership, with one installed package and one selectable new preset",
+      {
+        "check": "The official Chinese Plugins screen shows one installed card titled 精神",
+        "screenshot": "dsh-jingshen-0.4.5-installed.png"
+      },
+      "The upgraded browser continues the same history once, and it survives restart"
+    ],
+    "browser": "156.0.8078.79",
+    "archives": [
+      {
+        "version": "0.4.3",
+        "sha256": "d4e6e845a37a5fd35f5b50541adf849bcb55f493207717de312c4e05b378184b"
+      },
+      {
+        "version": "0.4.5",
+        "sha256": "2467a76eab70992a3602702bdd278ff166c2a8f1ca92ef096ae638c3cd44e864"
+      }
+    ],
+    "passed": true
+  },
+  "voice": {
+    "passed": true,
+    "runtimeVersion": "0.2.2-rc.5",
+    "chromium": "156.0.8078.79",
+    "package": "0.4.5",
+    "platform": "linux",
+    "build": {
+      "server": "04dc5eca2d4ae7b226c3791fb96e458790afd66aefddf595a0fc8c7bd5292a63",
+      "client": "36eeed0b9f49a8f299fd1d9f22d2537573b16f34e7472d908b7a0c53f1b6a899"
+    },
+    "availability": {
+      "input": {
+        "name": "随包普通话识别",
+        "location": "host-local"
+      },
+      "output": {
+        "name": "小肥鱼 · 轻声普通话",
+        "model": "jingshen-light",
+        "voice": "xiaoyu",
+        "location": "host-local"
+      },
+      "active": true
+    },
+    "speechRecognition": [
+      {
+        "id": "native:46c11e7f62cfc4d487538f13f7b4c8a0bfef484ee590d7bac10ff79ed5a8458f",
+        "author": "owner",
+        "text": "你好你听得见我吗",
+        "at": "2026-11-23T03:53:13.551Z",
+        "source": {
+          "kind": "native",
+          "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+          "messageId": "spirit-owner:994389b70acebf25d7cb4dedab608bac9eda6c2075df364f49ffae6ccb32ab43",
+          "seq": 27
+        },
+        "cursor": 7
+      },
+      {
+        "id": "native:8378ac5020caeff9637dd08769f6b693b4f986d3af327c41338abc46e95e149d",
+        "author": "owner",
+        "text": "等一下我想说另一件事",
+        "at": "2026-11-23T03:53:24.660Z",
+        "source": {
+          "kind": "native",
+          "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+          "messageId": "spirit-owner:20071b0ca5cb92c559436edbfe5fcf5c338e722433682f0e3c12225805275b5d",
+          "seq": 36
+        },
+        "cursor": 10
+      }
+    ],
+    "publishedReplies": [
+      {
+        "id": "native:d4e26810e09fc26edf75ad80867122dfc1c7250112462e03cd1d2999c510e39c",
+        "author": "spirit",
+        "text": "听得见，我在这里。你可以慢慢说。我们先把刚才想到的事情记下来，再一起看看哪一件最想动手。说到一半想换话题也没关系，等你准备好我再接着听。今天还很长，我们可以留一点时间给临时冒出来的念头，也可以从眼前这一件小事做起。",
+        "at": "2026-11-23T03:53:13.624Z",
+        "source": {
+          "kind": "native",
+          "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+          "seq": 33,
+          "messageId": "58824fc0-f0c1-4312-88ee-5abe0879a728",
+          "turn": 3
+        },
+        "cursor": 9
+      },
+      {
+        "id": "native:5317eab559350f674f4aada8c43adeb78ab2f76a1ab7516239ee8a6cfde29469",
+        "author": "spirit",
+        "text": "好，你说。我先听听这件新的事，再和你想想下一步怎么安排。",
+        "at": "2026-11-23T03:53:24.742Z",
+        "source": {
+          "kind": "native",
+          "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+          "seq": 42,
+          "messageId": "8ca24357-e6c5-47bd-83fc-1667156ce33e",
+          "turn": 4
+        },
+        "cursor": 12
+      }
+    ],
+    "decisions": [
+      {
+        "at": "2026-11-23T03:53:04.057Z",
+        "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+        "provider": "spirit-fixture",
+        "model": "fixture-one",
+        "purpose": "spirit-mediation",
+        "tools": [
+          "jingshen_review_reply"
+        ],
+        "decision": "publish"
+      },
+      {
+        "at": "2026-11-23T03:53:06.121Z",
+        "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+        "provider": "spirit-fixture",
+        "model": "fixture-one",
+        "purpose": "spirit-mediation",
+        "tools": [
+          "jingshen_review_reply"
+        ],
+        "decision": "publish"
+      },
+      {
+        "at": "2026-11-23T03:53:13.622Z",
+        "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+        "provider": "spirit-fixture",
+        "model": "fixture-one",
+        "purpose": "spirit-mediation",
+        "tools": [
+          "jingshen_review_reply"
+        ],
+        "decision": "publish"
+      },
+      {
+        "at": "2026-11-23T03:53:24.740Z",
+        "sessionId": "personal-spirit-bf5db691c64214692248225231812b1a",
+        "provider": "spirit-fixture",
+        "model": "fixture-one",
+        "purpose": "spirit-mediation",
+        "tools": [
+          "jingshen_review_reply"
+        ],
+        "decision": "publish"
+      }
+    ],
+    "playback": {
+      "tracks": [
+        "ended"
+      ],
+      "scheduled": [
+        {
+          "id": 0,
+          "peak": 0.093841552734375,
+          "samples": 2432,
+          "at": 17059.699999999953
+        },
+        {
+          "id": 1,
+          "peak": 0.18829345703125,
+          "samples": 2464,
+          "at": 17060.899999999907
+        },
+        {
+          "id": 2,
+          "peak": 0.12353515625,
+          "samples": 2464,
+          "at": 17061.199999999953
+        },
+        {
+          "id": 3,
+          "peak": 0.272918701171875,
+          "samples": 2464,
+          "at": 17066.5
+        },
+        {
+          "id": 4,
+          "peak": 0.224151611328125,
+          "samples": 2464,
+          "at": 17069.79999999993
+        },
+        {
+          "id": 5,
+          "peak": 0.17803955078125,
+          "samples": 2464,
+          "at": 17070
+        },
+        {
+          "id": 6,
+          "peak": 0.31695556640625,
+          "samples": 2464,
+          "at": 17070.099999999977
+        },
+        {
+          "id": 7,
+          "peak": 0.168853759765625,
+          "samples": 2464,
+          "at": 17070.099999999977
+        },
+        {
+          "id": 8,
+          "peak": 0.0089111328125,
+          "samples": 2464,
+          "at": 17070.29999999993
+        },
+        {
+          "id": 9,
+          "peak": 0.000701904296875,
+          "samples": 2464,
+          "at": 17070.29999999993
+        },
+        {
+          "id": 10,
+          "peak": 0.041656494140625,
+          "samples": 2464,
+          "at": 17070.399999999907
+        },
+        {
+          "id": 11,
+          "peak": 0.272705078125,
+          "samples": 2464,
+          "at": 17070.399999999907
+        },
+        {
+          "id": 12,
+          "peak": 0.228179931640625,
+          "samples": 2464,
+          "at": 17070.5
+        },
+        {
+          "id": 13,
+          "peak": 0.404876708984375,
+          "samples": 2464,
+          "at": 17070.599999999977
+        },
+        {
+          "id": 14,
+          "peak": 0.17913818359375,
+          "samples": 2464,
+          "at": 17070.699999999953
+        },
+        {
+          "id": 15,
+          "peak": 0.264923095703125,
+          "samples": 2464,
+          "at": 17865.79999999993
+        },
+        {
+          "id": 16,
+          "peak": 0.22772216796875,
+          "samples": 2464,
+          "at": 17866.199999999953
+        },
+        {
+          "id": 17,
+          "peak": 0.158050537109375,
+          "samples": 2464,
+          "at": 17866.399999999907
+        },
+        {
+          "id": 18,
+          "peak": 0.044921875,
+          "samples": 2464,
+          "at": 17866.5
+        },
+        {
+          "id": 19,
+          "peak": 0.02496337890625,
+          "samples": 2464,
+          "at": 17866.699999999953
+        },
+        {
+          "id": 20,
+          "peak": 0.136871337890625,
+          "samples": 2464,
+          "at": 17867.5
+        },
+        {
+          "id": 21,
+          "peak": 0.13519287109375,
+          "samples": 2464,
+          "at": 17867.599999999977
+        },
+        {
+          "id": 22,
+          "peak": 0.2144775390625,
+          "samples": 2464,
+          "at": 17971.29999999993
+        },
+        {
+          "id": 23,
+          "peak": 0.267547607421875,
+          "samples": 2464,
+          "at": 18031.79999999993
+        },
+        {
+          "id": 24,
+          "peak": 0.163330078125,
+          "samples": 2464,
+          "at": 18161.79999999993
+        },
+        {
+          "id": 25,
+          "peak": 0.378509521484375,
+          "samples": 2464,
+          "at": 18272.599999999977
+        },
+        {
+          "id": 26,
+          "peak": 0.34527587890625,
+          "samples": 2464,
+          "at": 18327.79999999993
+        },
+        {
+          "id": 27,
+          "peak": 0.417938232421875,
+          "samples": 2464,
+          "at": 18438.29999999993
+        },
+        {
+          "id": 28,
+          "peak": 0.36767578125,
+          "samples": 2464,
+          "at": 18554.29999999993
+        },
+        {
+          "id": 29,
+          "peak": 0.0938720703125,
+          "samples": 2464,
+          "at": 18666
+        },
+        {
+          "id": 30,
+          "peak": 0.185882568359375,
+          "samples": 2464,
+          "at": 18721.29999999993
+        },
+        {
+          "id": 31,
+          "peak": 0.215484619140625,
+          "samples": 2464,
+          "at": 18835.199999999953
+        },
+        {
+          "id": 32,
+          "peak": 0.214385986328125,
+          "samples": 2464,
+          "at": 18954.29999999993
+        },
+        {
+          "id": 33,
+          "peak": 0.033721923828125,
+          "samples": 2464,
+          "at": 19065.29999999993
+        },
+        {
+          "id": 34,
+          "peak": 0.00164794921875,
+          "samples": 2464,
+          "at": 19120.699999999953
+        },
+        {
+          "id": 35,
+          "peak": 0.03436279296875,
+          "samples": 2464,
+          "at": 19231.199999999953
+        },
+        {
+          "id": 36,
+          "peak": 0.20428466796875,
+          "samples": 2464,
+          "at": 19354.29999999993
+        },
+        {
+          "id": 37,
+          "peak": 0.17828369140625,
+          "samples": 2464,
+          "at": 19466.099999999977
+        },
+        {
+          "id": 38,
+          "peak": 0.1494140625,
+          "samples": 2464,
+          "at": 19521.699999999953
+        },
+        {
+          "id": 39,
+          "peak": 0.18048095703125,
+          "samples": 2464,
+          "at": 19632.199999999953
+        },
+        {
+          "id": 40,
+          "peak": 0.09454345703125,
+          "samples": 2464,
+          "at": 19757.699999999953
+        },
+        {
+          "id": 41,
+          "peak": 0.3052978515625,
+          "samples": 2464,
+          "at": 19868.29999999993
+        },
+        {
+          "id": 42,
+          "peak": 0.126739501953125,
+          "samples": 2464,
+          "at": 19924.199999999953
+        },
+        {
+          "id": 43,
+          "peak": 0.16595458984375,
+          "samples": 2464,
+          "at": 20034.699999999953
+        },
+        {
+          "id": 44,
+          "peak": 0.470001220703125,
+          "samples": 2464,
+          "at": 20154.29999999993
+        },
+        {
+          "id": 45,
+          "peak": 0.201934814453125,
+          "samples": 2464,
+          "at": 20299.099999999977
+        },
+        {
+          "id": 46,
+          "peak": 0.11883544921875,
+          "samples": 2464,
+          "at": 20480.899999999907
+        },
+        {
+          "id": 47,
+          "peak": 0.18634033203125,
+          "samples": 2464,
+          "at": 20481.099999999977
+        },
+        {
+          "id": 48,
+          "peak": 0.155853271484375,
+          "samples": 2464,
+          "at": 20591.79999999993
+        },
+        {
+          "id": 49,
+          "peak": 0.46148681640625,
+          "samples": 2464,
+          "at": 20713.29999999993
+        },
+        {
+          "id": 50,
+          "peak": 0.153106689453125,
+          "samples": 2464,
+          "at": 20823.899999999907
+        },
+        {
+          "id": 51,
+          "peak": 0.363067626953125,
+          "samples": 2464,
+          "at": 20879.29999999993
+        },
+        {
+          "id": 52,
+          "peak": 0.363067626953125,
+          "samples": 2464,
+          "at": 20990.099999999977
+        },
+        {
+          "id": 53,
+          "peak": 0.209197998046875,
+          "samples": 2464,
+          "at": 21109.599999999977
+        },
+        {
+          "id": 54,
+          "peak": 0.19146728515625,
+          "samples": 2464,
+          "at": 21220.29999999993
+        },
+        {
+          "id": 55,
+          "peak": 0.14813232421875,
+          "samples": 2464,
+          "at": 21330.899999999907
+        },
+        {
+          "id": 56,
+          "peak": 0.12530517578125,
+          "samples": 2464,
+          "at": 21386.399999999907
+        },
+        {
+          "id": 57,
+          "peak": 0.09356689453125,
+          "samples": 2464,
+          "at": 21497.199999999953
+        },
+        {
+          "id": 58,
+          "peak": 0.08013916015625,
+          "samples": 2464,
+          "at": 21609.79999999993
+        },
+        {
+          "id": 59,
+          "peak": 0.121856689453125,
+          "samples": 2464,
+          "at": 21720.5
+        },
+        {
+          "id": 60,
+          "peak": 0.1563720703125,
+          "samples": 2464,
+          "at": 21831.099999999977
+        },
+        {
+          "id": 61,
+          "peak": 0.4456787109375,
+          "samples": 2464,
+          "at": 21941.79999999993
+        },
+        {
+          "id": 62,
+          "peak": 0.3272705078125,
+          "samples": 2464,
+          "at": 21997.29999999993
+        },
+        {
+          "id": 63,
+          "peak": 0.274810791015625,
+          "samples": 2464,
+          "at": 22108.399999999907
+        },
+        {
+          "id": 64,
+          "peak": 0.333343505859375,
+          "samples": 2464,
+          "at": 22219.099999999977
+        },
+        {
+          "id": 65,
+          "peak": 0.03594970703125,
+          "samples": 2432,
+          "at": 27574.29999999993
+        },
+        {
+          "id": 66,
+          "peak": 0.28173828125,
+          "samples": 2464,
+          "at": 27575.199999999953
+        },
+        {
+          "id": 67,
+          "peak": 0.2510986328125,
+          "samples": 2464,
+          "at": 27575.199999999953
+        },
+        {
+          "id": 68,
+          "peak": 0.0135498046875,
+          "samples": 2464,
+          "at": 27575.29999999993
+        },
+        {
+          "id": 69,
+          "peak": 0.0718994140625,
+          "samples": 2464,
+          "at": 27575.5
+        },
+        {
+          "id": 70,
+          "peak": 0.068878173828125,
+          "samples": 2464,
+          "at": 27575.599999999977
+        },
+        {
+          "id": 71,
+          "peak": 0.170928955078125,
+          "samples": 2464,
+          "at": 27575.699999999953
+        }
+      ],
+      "stopped": [
+        {
+          "id": 50,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 51,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 52,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 53,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 54,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 55,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 56,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 57,
+          "at": 22299.199999999953
+        },
+        {
+          "id": 58,
+          "at": 22299.29999999993
+        },
+        {
+          "id": 59,
+          "at": 22299.29999999993
+        },
+        {
+          "id": 60,
+          "at": 22299.29999999993
+        },
+        {
+          "id": 61,
+          "at": 22299.29999999993
+        },
+        {
+          "id": 62,
+          "at": 22299.29999999993
+        },
+        {
+          "id": 63,
+          "at": 22299.399999999907
+        },
+        {
+          "id": 64,
+          "at": 22299.399999999907
+        },
+        {
+          "id": 68,
+          "at": 28095.099999999977
+        },
+        {
+          "id": 69,
+          "at": 28095.099999999977
+        },
+        {
+          "id": 70,
+          "at": 28095.099999999977
+        },
+        {
+          "id": 71,
+          "at": 28095.099999999977
+        }
+      ]
+    },
+    "scope": "Model replies came from a deterministic local fixture. Mandarin speech used the bundled recognizer, optional PrimeTTS, and Chromium file-backed microphone and Web Audio."
+  },
+  "vision": {
+    "reportSHA256": "1aa60e351a62935673fd9e455d28126341316913a22281daa96dc02c3383fb3e",
+    "frames": 35,
+    "sentJPEGBytes": 37586
+  },
+  "releaseNotes": "The final client hides its launcher on the Plugins page. The upgrade and badge checks ran against that client. Media evidence was collected before this Plugins-only adjustment."
+}

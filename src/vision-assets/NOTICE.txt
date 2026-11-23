@@ -1,5 +1,0 @@
-EfficientDet-Lite0 object detector with LiteRT metadata, version 1.
-Published by TensorFlow under the Apache License, Version 2.0.
-TensorFlow model card: https://www.kaggle.com/models/tensorflow/efficientdet/tflite/lite0-detection-metadata/1
-The bundled file is the unmodified 1.tflite from that model release.
-SHA-256: 2e04c53bfeac0ac2a30c057c7e2a777594ce39baaac35a92f74fb1e8c4fc4e0b
