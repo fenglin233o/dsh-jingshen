@@ -37,7 +37,59 @@
   "verified": {
     "protocolAndClientFixture": "Fixed origin and exact voice, key rotation, provider errors and PCM chunk forwarding. Short multi-sentence replies make one request. Per-call repeated reads of the same delivery do not generate again. Barge-in, hangup and iterator cancellation stop playback. Explicit prior providers remain selectable.",
     "credentialSmoke": "An isolated credential store in the official rc.5 accepted and persisted a synthetic BREEZE_API_KEY for the owner. Masked description, rotation, unset and denial to unauthorized peers were checked.",
-    "officialServiceCheck": "Unauthenticated GET returned HTTP 401 AUTH_REQUIRED. The official public voice page and catalog identify this voice."
+    "officialServiceCheck": "Unauthenticated GET returned HTTP 401 AUTH_REQUIRED. The official public voice page and catalog identify this voice.",
+    "authenticatedSynthesis": {
+      "service": "Breeze Blue production",
+      "path": "0.4.3 streamBreeze adapter",
+      "voiceId": "voc_8yud7hz7c9q2",
+      "format": "raw signed PCM16 LE, 24 kHz mono",
+      "requestsCompleted": 7,
+      "timings": [
+        {
+          "id": "00-sample",
+          "seconds": 3.92,
+          "firstMs": 921,
+          "completeMs": 2499
+        },
+        {
+          "id": "01-hello",
+          "seconds": 6.96,
+          "firstMs": 503,
+          "completeMs": 2845
+        },
+        {
+          "id": "02-plan",
+          "seconds": 9.76,
+          "firstMs": 354,
+          "completeMs": 3155
+        },
+        {
+          "id": "03-change",
+          "seconds": 7.68,
+          "firstMs": 512,
+          "completeMs": 2939
+        },
+        {
+          "id": "04-mediation",
+          "seconds": 8.64,
+          "firstMs": 572,
+          "completeMs": 3371
+        },
+        {
+          "id": "05-autonomy",
+          "seconds": 8.24,
+          "firstMs": 451,
+          "completeMs": 3209
+        },
+        {
+          "id": "06-call",
+          "seconds": 10.72,
+          "firstMs": 459,
+          "completeMs": 3967
+        }
+      ],
+      "timingBasis": "Monotonic time from adapter invocation to first nonempty response-body chunk and response EOF. Browser playback latency is separate."
+    }
   },
   "releaseArtifactEvidence": "The accompanying dsh-jingshen-0.4.3-verification.json records hashes, sizes and the Linux rc.5 installation and browser runs for the distributed package.",
   "officialReferences": {
@@ -48,8 +100,8 @@
     "pricing": "https://breezeblue.ai/zh/pricing"
   },
   "limits": [
-    "No credentialed synthesis on the public Breeze service and no credits redeemed or spent during release verification.",
-    "The official preview is a provider-produced sample. Real end-to-end timbre, first-audio latency and the account's charged amount await an authenticated live call.",
+    "The authenticated checks synthesized an audition and six demo narration clips. Browser streaming, hangup and barge-in used a controlled upstream in a real rc.5 browser session.",
+    "The account balance, invoiced amount, hardware microphone-to-speaker latency and listening quality on other devices were not measured.",
     "This release adds no new verification of Electron, other operating systems, or long-term model learning."
   ]
 }

@@ -10,7 +10,7 @@
 
 标准包保留 Zipformer 中文 CTC 识别模型，转写使用宿主的 Sherpa-ONNX。默认云端朗读采用 `breeze-tts-2`、语言 `zh` 和音色 `voc_8yud7hz7c9q2`。接通通话后，宿主只为新交付的公开正文请求 PCM 音频流。该条回复明确选择柔和、温暖、认真或俏皮语气时，宿主另附简短的表演提示，原文照发；默认和中性语气沿用音色本身的读法。麦克风录音、聊天历史和草稿不随合成请求发送。回复内容仍由选定的 Harness 聊天模型生成。[语音识别声明](../media/voice/local/asr/NOTICE)
 
-宿主发送 `enable_logging=false`，请求 Breeze 跳过生成历史记录。服务端仍可能保留运营或计费日志。打断或挂断会停止本地播放并取消仍在读取的流，费用和结算状态以 Breeze 账户明细为准。此版本未用有效 Breeze 密钥测量实际费用、通话听感或延迟。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
+宿主发送 `enable_logging=false`，请求 Breeze 跳过生成历史记录。服务端仍可能保留运营或计费日志。打断或挂断会停止本地播放并取消仍在读取的流，费用和结算状态以 Breeze 账户明细为准。使用正式 API 和迷糊版音色完成了 7 次中文合成。一次 3.92 秒的试听从发出请求到收到第一块音频耗时 0.921 秒。该时间包含网络与供应商处理，通话还需要浏览器排程播放。[Breeze 流式合成接口](https://docs.breezeblue.ai/api-reference/text-to-speech/stream-text-to-speech)
 
 ### 从命令行配置宿主密钥
 

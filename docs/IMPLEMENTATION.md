@@ -65,7 +65,7 @@ node tests/runtime-smoke.mjs --runtime /绝对路径/临时运行环境 --suite 
 
 ## 本次交付的验证结果
 
-0.4.3 的 Breeze 接线使用受控的请求与音频流测试。测试范围包括凭据、发言投递、HTTP 错误和打断。未用有效 Breeze 密钥生成音频，实际扣费、云端首音延迟和通话听感仍待实测。各版本的归档以记录内的版本标识为准。[当前验证记录](verification.json) · [发行包复核](../marketplace/RELEASE-VALIDATION.md) · [0.4.2 本机语音验证记录](verification-0.4.2.json)
+0.4.3 的 Breeze 接线使用受控的请求与音频流测试。测试范围包括凭据、发言投递、HTTP 错误和打断。另用发行版合成适配器和真实 Breeze API 完成 7 次中文合成，收到首个音频块耗时 0.354 至 0.921 秒。浏览器播放和打断在真实 rc.5 中用受控音频流验证。各版本的归档以记录内的版本标识为准。[当前验证记录](verification.json) · [发行包复核](../marketplace/RELEASE-VALIDATION.md) · [0.4.2 本机语音验证记录](verification-0.4.2.json)
 
 0.4.1 的角色声线与通话档案见 [0.4.1 验证记录](verification-0.4.1.json)。下文所述的 0.4.0 行为基线，包括自动化测试、rc.5 宿主、真实旧状态升级和 Linux 本地 Web，见 [0.4.0 验证档案](verification-0.4.0.json)。基线的本机模型适配器产生确定的协议事件，并经过宿主组装请求、调用工具、处理授权、投递与压缩等实际路径。真实模型的长期自主学习、行为改善、Electron、Windows 和 macOS 需要各自的运行证据。
 

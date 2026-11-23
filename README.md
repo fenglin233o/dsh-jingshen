@@ -1,16 +1,16 @@
 # 精神 · dsh-jingshen
 
-作者：**fenglin**。当前验证范围为 Harness 本地 Web；Electron 桌面客户端尚未完成兼容验收。
+**精神**是 fenglin 基于 SuperAgent 开发的个人 AI 助手，包名为 `dsh-jingshen`。在 DeepSeek Harness 的工作画幅里点一下小肥鱼，就能进入它的主会话。**0.4.3 适配 Harness 0.2.2-rc.5，要求 Node.js 24.9 或更高版本。** [下载 0.4.3 安装包](https://github.com/fenglin233o/dsh-jingshen/releases/download/v0.4.3/dsh-jingshen-0.4.3.tgz) · [发行说明与可选资产](https://github.com/fenglin233o/dsh-jingshen/releases/tag/v0.4.3)
 
-个人使用的 DeepSeek Harness 插件，以 SuperAgent 的任务引擎、SQLite 存储与持久执行队列为基底。**0.4.3 仅面向 DeepSeek Harness 0.2.2-rc.5**，需要 Node.js **24.9+**。安装后有一个“精神”预设。聊天入口是工作画幅里的小肥鱼，点击后会从鱼身旁展开主会话。
+比如你和小肥鱼商量周末去湖边，隔天又决定去书店。它可以把原来的安排改掉，在另一段会话里继续做这件事。支撑这种接续的是各会话共同使用的工作状态。主会话压缩后，已经取消的工作仍保持取消。
 
-它承认模型、语言、工具、已有历史和与你的关系已经构成丰富的起点。没有预写的人格、六阶段成长路线，也不要求每次工作都填写哲学表格。设计依据与解释边界见 [《精神现象学》对照](docs/PHENOMENOLOGY.md) 和 [架构说明](docs/ARCHITECTURE.md)。
+- **跟它聊天或打电话。** 主会话里的每条发言都经过精神决定后才交付。接通电话可以随时插话，默认在本机转写普通话，再用 Breeze 的「大肥鱼（迷糊版）」读出它发给你的话。[通话与连续视觉](docs/MEDIA.md)
+- **让它参与项目。** 它可以借助工作会话、智能体团队和子代理推进事情。它在其他会话中参与发布时，回复旁会显示“精神”。[架构与会话协作](docs/ARCHITECTURE.md)
+- **决定它可以做什么。** 你可以要求敏感操作先询问，或授予完全访问，也可以暂停、恢复和停止活动。它能提出并实施源码改动，分别记录验证、应用、运行加载和后续效果。[实现与验证](docs/IMPLEMENTATION.md)
 
-## 公开源码与发行
+设计取自《精神现象学》。模型、语言、工具和历史是起点，插件在具体经验里形成并修订判断。空闲给它重新考虑的机会，它可以发起一件事，也可以安静一会儿。[设计依据](docs/PHENOMENOLOGY.md)
 
-作者：fenglin。源码与问题反馈：[fenglin233o/dsh-jingshen](https://github.com/fenglin233o/dsh-jingshen)。
-
-本项目的包名为 `dsh-jingshen`，公开仓库包含已构建的运行文件，可通过 GitHub 来源直接安装；固定版本见仓库的 [Releases](https://github.com/fenglin233o/dsh-jingshen/releases)。npm 上的 `dsh-spirit` 属于另一个项目。社区市场收录采用 dshmarket 的目录审核流程，提交申请与正式收录是两个状态。详情见 [市场发布说明](marketplace/README.md)。
+本版已在 Linux 本地 Web 上验证安装、从 0.4.2 升级及可打断的通话链路，并用真实 Breeze API 合成了中文语音。Electron 与其他平台仍待验证。[验证记录](docs/verification.json)
 
 ![打开小肥鱼后的精神通讯窗](media/screenshots/main.png)
 
